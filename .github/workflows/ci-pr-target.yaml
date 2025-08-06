@@ -10,7 +10,5 @@ on:
 
 jobs:
   pkg-deps:
-    permissions:
-      pull-requests: write
     name: Package dependencies
     uses: lczyk/chisel-releases-workflow-testing/.github/workflows/pkg-deps.yaml@main
