@@ -13,8 +13,8 @@ jobs:
     env:
       branch: ${{ github.base_ref }}
       main-branch-path: files-from-main
-    # permissions:
-    #   pull-requests: write
+    permissions:
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
