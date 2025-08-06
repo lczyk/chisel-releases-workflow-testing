@@ -1,0 +1,19 @@
+package: libssl1.1
+
+essential:
+  - libssl1.1_copyright
+
+slices:
+  libs:
+    essential:
+      - libc6_libs
+    contents:
+      /usr/lib/*-linux-*/engines-1.1/afalg.so:
+      /usr/lib/*-linux-*/engines-1.1/capi.so:
+      /usr/lib/*-linux-*/engines-1.1/padlock.so:
+      /usr/lib/*-linux-*/libcrypto.so.*:
+      /usr/lib/*-linux-*/libssl.so.*:
+
+  copyright:
+    contents:
+      /usr/share/doc/libssl1.1/copyright:

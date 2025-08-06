@@ -1,0 +1,20 @@
+package: python3.8-minimal
+
+essential:
+  - python3.8-minimal_copyright
+
+slices:
+  bins:
+    essential:
+      - libc6_libs
+      - libexpat1_libs
+      - libpython3.8-minimal_libs
+      - zlib1g_libs
+    contents:
+      /usr/bin/python3.8:
+      /usr/local/lib/python3.8/: {make: true, mode: 02775}
+      /usr/local/lib/python3.8/dist-packages/: {make: true, mode: 02775}
+
+  copyright:
+    contents:
+      /usr/share/doc/python3.8-minimal/copyright:
