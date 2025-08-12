@@ -8,10 +8,10 @@ name: "Forward port missing"
 # trigger only on PRs and changes to the 1st comment of the PR.
 
 on:
-  pull_request:
-    types: [opened, edited, synchronize]
-    branches:
-      - "main"
+  # pull_request:
+  #   types: [opened, edited, synchronize]
+  #   branches:
+  #     - "main"
   workflow_call:
 
 # env:
