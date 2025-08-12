@@ -1,0 +1,53 @@
+name: "Forward port missing"
+
+# This workflow checks whether there exists a forward port for the slices and
+# applies the `forward port missing` label if necessary. This is, in general,
+# quite a tricky problem since the repo + its PRs can be in a wide variety of
+# states. This workflow therefore attempts to solve a bunch of them, but, to
+# prevent it from fighting with both itself and maintainers, it is supposed to
+# trigger only on PRs and changes to the 1st comment of the PR.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+    branches:
+      - "main"
+  # workflow_call:
+
+# env:
+#   # The path to the script that checks for forward ports.
+#   FORWARD_PORT_SCRIPT: ".github/scripts/forward-port-missing/forward-port-missing"
+
+jobs:
+  check-forward-port:
+    name: "Check for forward port"
+    runs-on: ubuntu-latest
+    env:
+      files_main: "main-files"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # We do need to fetch all history for all branches.
+          fetch-depth: 0
+
+      - name: "Set reference to main branch"
+        id: set-main-ref
+        run: |
+          if [[ "${{ github.base_ref }}" == "main" ]]; then
+            # For PRs to main, use the updated files.
+            # Leaving checkout_main_ref unset will checkout the PR head_ref.
+            echo "ref_main=" >> $GITHUB_OUTPUT
+          else
+            echo "ref_main=main" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "Checkout main branch"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.set-main-ref.outputs.ref_main }}
+          path: ${{ env.files_main }}
+      
+      - name: "Check for forward port"
+        run: |
+          ln -s "${{ env.files_main }}/.github/scripts/forward-port-missing/forward-port-missing" .
+          ./forward-port-missing
