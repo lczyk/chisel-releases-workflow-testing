@@ -12,7 +12,7 @@ on:
     types: [opened, edited, synchronize]
     branches:
       - "main"
-  # workflow_call:
+  workflow_call:
 
 # env:
 #   # The path to the script that checks for forward ports.
