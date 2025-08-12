@@ -1,0 +1,15 @@
+# This workflow supports jobs which needs the on.issue_comment event
+# instead of the usual on.pull_request event.
+name: Forward port missing
+run-name: Forward port missing ${{ github.ref }}
+
+on:
+  issue_comment:
+    types: [created, edited, deleted]
+
+jobs:
+  forward-port-missing:
+    permissions:
+      pull-requests: write
+    name: Forward port missing
+    uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
