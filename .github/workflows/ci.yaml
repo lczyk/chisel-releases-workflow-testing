@@ -27,3 +27,7 @@ jobs:
   removed-slices:
     name: Removed slices
     uses: lczyk/chisel-releases-workflow-testing/.github/workflows/removed-slices.yaml@main
+
+  forward-port-missing:
+    name: Forward port missing
+    uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
