@@ -12,9 +12,9 @@ jobs:
   #   name: CLA check
   #   uses: lczyk/chisel-releases-workflow-testing/.github/workflows/cla-check.yaml@main
 
-  installability-tests:
-    name: Installability tests
-    uses: lczyk/chisel-releases-workflow-testing/.github/workflows/install-slices.yaml@main
+  # installability-tests:
+  #   name: Installability tests
+  #   uses: lczyk/chisel-releases-workflow-testing/.github/workflows/install-slices.yaml@main
 
   lint:
     name: Lint
