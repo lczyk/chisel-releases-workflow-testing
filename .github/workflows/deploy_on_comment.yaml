@@ -20,12 +20,15 @@ jobs:
         id: body-cleanup
         with:
           script: |
-            console.log(github);
-            console.log(github.event);
-            console.log(github.event.comment);
-            console.log(github.event.comment.body);
+            // console.log(github);
+            // console.log(github.event);
+            // console.log(github.event.comment);
+            // console.log(github.event.comment.body);
 
-            const body = github.event.comment.body;
+            const body = ${github.event.comment.body};
+
+            console.log(`Original body: ${body}`);
+
 
             // Regular expression to match all emojis.
             // The `u` flag enables Unicode-aware matching.
