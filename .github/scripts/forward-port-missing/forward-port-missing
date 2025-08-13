@@ -22,6 +22,8 @@ function _fatal() {
 
 ####
 
+# Find text between two markers
+# Returns the text between the markers, or an empty string if not found
 function find_between_markers() {
     local text="$1"
     local begin_marker="$2"
@@ -94,17 +96,54 @@ function find_issue_numbers() {
 START_MARKER="<!-- 🤖 FORWARD PORTING BEGIN -->"
 END_MARKER="<!-- 🤖 FORWARD PORTING END -->"
 
+# All the current ubuntu versions
+UBUNTU_VERSIONS=(
+    "20.04" # Focal (LTS)
+    "22.04" # Jammy (LTS)
+    "24.04" # Noble (LTS)
+    "25.04" # Plucky
+)
+
 function main() {
     local body="$1"
     [[ -n "$body" ]] || \
-        _fatal "No body provided."
+        _fatal "No body provided. Expected the body of the PR message."
 
+    local base_ref="$2"
+    [[ -n "$base_ref" ]] || \
+        _fatal "No base ref provided. Expected something like 'ubuntu-24.04'"
+
+    # Find the issue numbers in the body of the PR
     local forward_porting=$(find_between_markers "$body" "$START_MARKER" "$END_MARKER")
     [[ -n "$forward_porting" ]] || \
         _fatal "No forward porting section found in the body."
 
     _info "Forward porting section found:"
     echo "$forward_porting"
+
+    local issue_numbers=$(find_issue_numbers "$forward_porting")
+    [[ -n "$issue_numbers" ]] || \
+        _fatal "No issue numbers found in the forward porting section."
+
+    _info "Issue numbers found: $issue_numbers"
+
+    # Find out which ubuntu version is this PR for
+    local ubuntu_version=$(echo "$base_ref" | sed -n 's/^ubuntu-\([0-9]\+\.[0-9]\+\)/\1/p')
+    [[ -n "$ubuntu_version" ]] || \
+        _fatal "Could not determine the Ubuntu version from the base ref '$base_ref'."
+
+    # Check if the ubuntu version is supported
+    local is_supported=false
+    for version in "${UBUNTU_VERSIONS[@]}"; do
+        if [[ "$version" == "$ubuntu_version" ]]; then
+            is_supported=true
+            break
+        fi
+    done
+    [[ "$is_supported" == true ]] || \
+        _fatal "The Ubuntu version '$ubuntu_version' is not supported by this script. Supported versions are: ${UBUNTU_VERSIONS[*]}."
+
+    _info "Ubuntu version '$ubuntu_version' is supported."
 }
 
 # Check if the script is being run directly or sourced
