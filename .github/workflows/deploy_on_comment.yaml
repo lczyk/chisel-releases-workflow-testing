@@ -1,5 +1,4 @@
 name: "Deploy on Comment"
-run_name: Deploy on PR Comment
 
 on:
   issue_comment:
