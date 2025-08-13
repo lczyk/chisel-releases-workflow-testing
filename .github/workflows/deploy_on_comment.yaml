@@ -20,6 +20,11 @@ jobs:
         id: body-cleanup
         with:
           script: |
+            console.log(github);
+            console.log(github.event);
+            console.log(github.event.comment);
+            console.log(github.event.comment.body);
+
             const body = github.event.comment.body;
 
             // Regular expression to match all emojis.
