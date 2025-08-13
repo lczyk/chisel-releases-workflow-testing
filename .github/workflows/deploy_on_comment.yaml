@@ -3,8 +3,8 @@ name: "Deploy on Comment"
 on:
   issue_comment:
     types: [created, edited]
-  pull_request_target:
-    types: [opened, edited, synchronize]
+  pull_request:
+    types: [opened, edited]
 
 jobs:
   deploy:
@@ -13,8 +13,9 @@ jobs:
     # We want to check that in the `if` condition so we don't even launch the 
     # job and not waste resources.
     if: |
-      github.event.issue.pull_request && 
-      contains(github.event.comment.body, '<!-- 🤖 PR -->')
+      (github.event_name == 'issue_comment' || 
+       github.event_name == 'pull_request') &&
+       contains(github.event.comment.body, '<!-- 🤖 PR -->')
     steps:
       - name: Echo body
         run: echo "${{ github.event.comment.body }}"
