@@ -208,7 +208,6 @@ function main() {
         if [[ "$ubuntu_version" == "${UBUNTU_VERSIONS[-1]}" ]]; then
             _info "This is a PR into the latest Ubuntu version '${UBUNTU_VERSIONS[-1]}'."
             _info "No issue numbers found in the forward porting section, but none are needed"
-            # TODO: but we might be someone else's forward port!
             exit 0
         else
             _info "This is a PR into an older Ubuntu version '$ubuntu_version'."
@@ -219,7 +218,7 @@ function main() {
 }
 
 function _mark_this_PR_as_forward_port_missing() {
-    # This function should mark the PR as missing forward porting
+    # TODO: This function should mark the PR as missing forward porting
     # For now, we just print a message
     _fatal "Marking this PR as missing forward porting is not implemented yet."
 }
