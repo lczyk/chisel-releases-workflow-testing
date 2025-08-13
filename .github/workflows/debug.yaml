@@ -1,4 +1,4 @@
-name: "Deploy on Comment"
+name: "Debug ${ github.ref_name }"
 
 # on:
 #   issue_comment:
@@ -69,34 +69,31 @@ jobs:
   debug:
     runs-on: ubuntu-latest
     steps:
-      - name: Echo event name
-        run: echo "${{ github.event_name }}"
-
       - name: Echo all the event data
         run: echo '${{ toJson(github) }}'
 
-  deploy:
-    runs-on: ubuntu-latest
-    # Check that we are a PR event and that the comment has the special marker
-    # We want to check that in the `if` condition so we don't even launch the 
-    # job and not waste resources.
-    if: |
-      (github.event_name == 'issue_comment' || 
-       github.event_name == 'pull_request') &&
-       contains(github.event.comment.body, '<!-- 🤖 PR -->')
-    steps:
-      - name: Echo body
-        run: echo "${{ github.event.comment.body }}"
+  # deploy:
+  #   runs-on: ubuntu-latest
+  #   # Check that we are a PR event and that the comment has the special marker
+  #   # We want to check that in the `if` condition so we don't even launch the 
+  #   # job and not waste resources.
+  #   if: |
+  #     (github.event_name == 'issue_comment' || 
+  #      github.event_name == 'pull_request') &&
+  #      contains(github.event.comment.body, '<!-- 🤖 PR -->')
+  #   steps:
+  #     - name: Echo body
+  #       run: echo "${{ github.event.comment.body }}"
           
-      # - name: Generate an output variable
-      #   id: set_variable  # Give this step a unique ID
-      #   run: |
-      #     # Generate a value (e.g., a dynamic version number)
-      #     my_version="1.2.3"
-      #     # Write the variable to the GITHUB_OUTPUT file
-      #     echo "version=$my_version" >> $GITHUB_OUTPUT
+  #     # - name: Generate an output variable
+  #     #   id: set_variable  # Give this step a unique ID
+  #     #   run: |
+  #     #     # Generate a value (e.g., a dynamic version number)
+  #     #     my_version="1.2.3"
+  #     #     # Write the variable to the GITHUB_OUTPUT file
+  #     #     echo "version=$my_version" >> $GITHUB_OUTPUT
 
-      # - name: Use the variable in a later step
-      #   run: |
-      #     echo "The generated version is ${{ steps.set_variable.outputs.version }}"
+  #     # - name: Use the variable in a later step
+  #     #   run: |
+  #     #     echo "The generated version is ${{ steps.set_variable.outputs.version }}"
 
