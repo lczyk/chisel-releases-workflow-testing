@@ -13,8 +13,8 @@ jobs:
     # We want to check that in the `if` condition so we don't even launch the 
     # job and not waste resources.
     if: |
-      github.event.issue.pull_request \
-      && contains(github.event.comment.body, env.PR_MARKER)
+      github.event.issue.pull_request && 
+      contains(github.event.comment.body, env.PR_MARKER)
     steps:
       - name: Debug
         run: |
