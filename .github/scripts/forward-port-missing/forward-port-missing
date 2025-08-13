@@ -56,14 +56,32 @@ function find_issue_numbers() {
 
     [[ -z "$text" ]] && exit 0
 
-    # TODO: this is a bit messy, but works for now
+    # Extract issue numbers in the format #123, #456, etc.
     result=$(
         echo "$text" |
         # match only one '#' followed by digits and grab one more character
         grep -o '[^#]#[0-9]\+.' |
         # allow the last character to be a common punctuation marker, a space or a number
         # then blow up the first character, the last character (unless its a digit) and the '#'
-        sed -n '/.*[0-9 ,.;()]$/ { s/^.//; s/[^0-9]$//; s/#//; p }' |
+        sed -n '/.*[0-9 ,.;()]$/ { s/^.//; s/[^0-9]$//; s/#//; p }'
+    )
+
+    # Extract issue numbers which are markdown links
+    # e.g. [here](http://github.com/canonical/chisel-releases/pull/123)
+    # We accept http, https and no protocol links
+    local pr_base='github.com/canonical/chisel-releases/pull'
+    result+=$(
+        echo "$text" |
+        # NOTE: we do need the `-P` option for Perl regex support
+        # due to the non-greedy match `.*?` and non-capturing group `(?:...)`
+        grep -oP '\[.*?\]\((?:https?://)?'"$pr_base"'/[0-9]+\)' |
+        # extract the issue number from the link
+        sed "s/.*${pr_base//\//\\/}\///;s/)$//;"
+    )
+
+    # Final processing
+    result=$(
+        echo "$result" |
         # sort and unique
         sort -u |
         # swap from newlines to spaces and remove trailing

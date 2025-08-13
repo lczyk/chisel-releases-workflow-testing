@@ -42,3 +42,30 @@ function test_find_issue_numbers_hard_case() {
     local result=$(find_issue_numbers "$text")
     assert_equals "$expected" "$result"  "Should handle complex cases with punctuation and parentheses"
 }
+
+function test_find_issue_numbers_sort_and_unique() {
+    local text="Fixes #3, #1, #2, #2, #3"
+    local expected="1 2 3"
+    
+    local result=$(find_issue_numbers "$text")
+    assert_equals "$expected" "$result"  "Should return sorted and unique issue numbers"
+}
+
+function test_find_issue_numbers_links() {
+    local text=$(cat <<EOF
+        Find forward-port [here](https://github.com/canonical/chisel-releases/pull/123)
+        and, with http as opposed to https [here](http://github.com/canonical/chisel-releases/pull/456)
+        and even without any protocol [here](github.com/canonical/chisel-releases/pull/789).
+EOF
+    )
+    local expected="123 456 789"
+    local result=$(find_issue_numbers "$text")
+    assert_equals "$expected" "$result"  "Should extract issue numbers from links"
+}
+
+function test_find_issue_numbers_links_wrong_repo() {
+    local text="Find forward-port [here](http://honey.badger.com/canonical/chisel-releases/pull/123)"
+    local expected=""
+    local result=$(find_issue_numbers "$text")
+    assert_equals "$expected" "$result"  "Should not extract issue numbers from links to wrong repo"
+}
