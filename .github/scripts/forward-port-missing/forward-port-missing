@@ -129,24 +129,40 @@ function main() {
     [[ "$is_supported" == true ]] || \
         _fatal "The Ubuntu version '$ubuntu_version' is not supported by this script. Supported versions are: ${UBUNTU_VERSIONS[*]}."
 
-    _info "Ubuntu version '$ubuntu_version' is supported."
+    # _info "This is a PR into Ubuntu version '$ubuntu_version'"
 
     # Find the issue numbers in the body of the PR
     local forward_porting=$(find_between_markers "$body" "$START_MARKER" "$END_MARKER")
     [[ -n "$forward_porting" ]] || \
         _fatal "No forward porting section found in the body."
 
-    _info "Forward porting section found:"
-    echo "$forward_porting"
+    # _info "Forward porting section found:"
+    # echo "$forward_porting"
 
     local issue_numbers=$(find_issue_numbers "$forward_porting")
     if [[ -n "$issue_numbers" ]]; then
         _fatal "Issue numbers not implemented"        
     else
-        _fatal "No issue numbers not implemented"
+        # Is this a pr into the latest Ubuntu version?
+        if [[ "$ubuntu_version" == "${UBUNTU_VERSIONS[-1]}" ]]; then
+            _info "This is a PR into the latest Ubuntu version '${UBUNTU_VERSIONS[-1]}'."
+            _info "No issue numbers found in the forward porting section, but none are needed"
+            # TODO: but we might be someone else's forward port!
+            exit 0
+        else
+            _info "This is a PR into an older Ubuntu version '$ubuntu_version'."
+            _info "No issue numbers found in the forward porting section, so will mark this PR as missing forward porting."
+            _mark_this_PR_as_forward_port_missing || exit 1
+        fi
     fi
-
 }
+
+function _mark_this_PR_as_forward_port_missing() {
+    # This function should mark the PR as missing forward porting
+    # For now, we just print a message
+    _fatal "Marking this PR as missing forward porting is not implemented yet."
+}
+
 
 # Check if the script is being run directly or sourced
 # If sourced, do not execute main
