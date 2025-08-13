@@ -18,12 +18,13 @@ on:
 #     uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
 
 
+
+
 jobs:
-  debug:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Echo all the event data
-        run: echo '${{ toJson(github) }}'
+  forward-port-missing:
+    # runs-on: ubuntu-latest
+    name: Forward port missing
+    uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
 
 
 
