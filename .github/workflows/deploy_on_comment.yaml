@@ -6,6 +6,7 @@ on:
 
 env:
   PR_MARKER: "<!-- 🤖 PR -->"
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -14,7 +15,7 @@ jobs:
     # job and not waste resources.
     if: |
       github.event.issue.pull_request && 
-      contains(github.event.comment.body, env.PR_MARKER)
+      contains(github.event.comment.body, ${ env.PR_MARKER })
     steps:
       - name: Debug
         run: |
