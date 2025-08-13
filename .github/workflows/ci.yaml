@@ -25,5 +25,5 @@ jobs:
   #   uses: lczyk/chisel-releases-workflow-testing/.github/workflows/spread.yaml@main
 
   removed-slices:
-    name: Removed slices
+    name: Removed slices1
     uses: lczyk/chisel-releases-workflow-testing/.github/workflows/removed-slices.yaml@main
