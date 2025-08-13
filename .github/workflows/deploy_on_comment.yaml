@@ -14,19 +14,18 @@ jobs:
       github.event.issue.pull_request && 
       contains(github.event.comment.body, '<!-- 🤖 PR -->')
     steps:
-      - name: Echo cleaned body
-        run: |
-          echo "${{ github.event.comment.body }}"
-          echo "${{ github.event.comment.body }}" | sed 's/<!-- 🤖 PR -->//g'
+      - name: Echo body
+        run: echo "${{ github.event.comment.body }}"
           
-      - name: Generate an output variable
-        id: set_variable  # Give this step a unique ID
-        run: |
-          # Generate a value (e.g., a dynamic version number)
-          my_version="1.2.3"
-          # Write the variable to the GITHUB_OUTPUT file
-          echo "version=$my_version" >> $GITHUB_OUTPUT
+      # - name: Generate an output variable
+      #   id: set_variable  # Give this step a unique ID
+      #   run: |
+      #     # Generate a value (e.g., a dynamic version number)
+      #     my_version="1.2.3"
+      #     # Write the variable to the GITHUB_OUTPUT file
+      #     echo "version=$my_version" >> $GITHUB_OUTPUT
 
-      - name: Use the variable in a later step
-        run: |
-          echo "The generated version is ${{ steps.set_variable.outputs.version }}"
+      # - name: Use the variable in a later step
+      #   run: |
+      #     echo "The generated version is ${{ steps.set_variable.outputs.version }}"
+
