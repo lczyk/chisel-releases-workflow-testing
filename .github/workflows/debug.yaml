@@ -1,7 +1,7 @@
 name: Debug workflow
 run-name: Debug workflow for ${{ github.ref_name }}
 
-# on: 
+on: 
 #   branch_protection_rule:
 #   check_run:
 #   check_suite:
@@ -54,8 +54,8 @@ run-name: Debug workflow for ${{ github.ref_name }}
 #   repository_dispatch:
 #   status:
 #   watch:
-#   workflow_call:
 #   workflow_dispatch:
+  workflow_call:
     
 
 jobs:
