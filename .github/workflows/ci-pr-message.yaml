@@ -2,7 +2,7 @@
 # are made to the topmost comment of a pull request -- the one made by the
 # author when they open the PR.
 name: PR message
-run-name: PR message ${{ github.ref }}
+run-name: PR message ${{ github.ref_name }}
 
 on:
   pull_request:
@@ -10,46 +10,15 @@ on:
     branches:
       - "ubuntu-*"
 
-# jobs:
-#   forward-port-missing:
-#     permissions:
-#       pull-requests: write
-#     name: Forward port missing
-#     uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
-
-
-
-
 jobs:
+  # debug:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Echo all the event data
+  #       run: echo '${{ toJson(github) }}'
+
   forward-port-missing:
+    if: github.event.action == 'edited' && github.event.changes.body
     # runs-on: ubuntu-latest
     name: Forward port missing
     uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
-
-
-
-# jobs:
-#   pr_commented:
-#     # This job only runs for pull request comments
-#     name: Forward port missing
-#     if: ${{ github.event.issue.pull_request }}
-#     # permissions:
-#     #   pull-requests: write
-#     # uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
-#     runs-on: ubuntu-latest
-#     steps:
-#       - run: |
-#           echo A comment on PR $NUMBER
-#         env:
-#           NUMBER: ${{ github.event.issue.number }}
-
-  # issue_commented:
-  #   # This job only runs for issue comments
-  #   name: Issue comment
-  #   if: ${{ !github.event.issue.pull_request }}
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - run: |
-  #         echo A comment on issue $NUMBER
-  #       env:
-  #         NUMBER: ${{ github.event.issue.number }}
