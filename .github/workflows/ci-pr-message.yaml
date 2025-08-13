@@ -6,21 +6,16 @@ run-name: PR message ${{ github.ref_name }}
 
 on:
   pull_request:
-    types: [created, edited]
+    types: [opened, edited]
     branches:
       - "ubuntu-*"
 
 jobs:
-  # debug:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Echo all the event data
-  #       run: echo '${{ toJson(github) }}'
-
   forward-port-missing:
+    # Trigger only when the PR body is changed
     if: |
-      # There were changes to the PR body
-      github.event.action == 'edited' && github.event.changes.body
+      (github.event.action == 'opened' && github.event.pull_request.body) ||
+      (github.event.action == 'edited' && github.event.changes.body)
     # runs-on: ubuntu-latest
     name: Forward port missing
     uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
