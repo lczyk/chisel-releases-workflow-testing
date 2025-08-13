@@ -21,9 +21,15 @@ jobs:
     # This job only runs for pull request comments
     name: Forward port missing
     if: ${{ github.event.issue.pull_request }}
-    permissions:
-      pull-requests: write
-    uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
+    # permissions:
+    #   pull-requests: write
+    # uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo A comment on PR $NUMBER
+        env:
+          NUMBER: ${{ github.event.issue.number }}
 
   # issue_commented:
   #   # This job only runs for issue comments
