@@ -25,7 +25,7 @@ jobs:
             // console.log(github.event.comment);
             // console.log(github.event.comment.body);
 
-            const body = ${github.event.comment.body};
+            const body = ${{ github.event.comment.body }};
 
             console.log(`Original body: ${body}`);
 
