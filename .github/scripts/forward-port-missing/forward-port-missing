@@ -225,7 +225,7 @@ function _mark_this_PR_as_forward_port_missing() {
     if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
         # Use GitHub CLI to list what labels are available for this PR
         env
-        local pr_number="${GITHUB_REF##*/}" # Extract PR number from GITHUB_REF
+        local pr_number="${GITHUB_REF_NAME##*/}" # Extract PR number from GITHUB_REF
         _info "Marking PR #$pr_number as missing forward porting."
         gh pr edit "$pr_number" --add-label "forward port missing" || \
             _fatal "Failed to mark PR #$pr_number as missing forward porting. Please check the GitHub CLI configuration."
