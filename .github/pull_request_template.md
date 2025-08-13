@@ -1,3 +1,6 @@
+<!-- 🤖 lines with this symbol are special and used by the CI. please don't edit or delete them. cheers! -->
+<!-- 🤖 PR -->
+
 # Proposed changes
 <!-- Describe the changes proposed in this PR.
 
