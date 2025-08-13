@@ -1,5 +1,6 @@
 name: Debug workflow
 run-name: Debug workflow for ${{ github.ref_name }}
+if: never()
 
 # on:
 #   issue_comment:
