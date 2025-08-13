@@ -3,6 +3,8 @@ name: "Deploy on Comment"
 on:
   issue_comment:
     types: [created, edited]
+  pull_request:
+    types: [opened, edited, synchronize]
 
 jobs:
   deploy:
