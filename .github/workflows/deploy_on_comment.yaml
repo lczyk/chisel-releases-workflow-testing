@@ -20,11 +20,20 @@ jobs:
         id: body-cleanup
         with:
           script: |
-            const body = process.env.GITHUB_EVENT_COMMENT_BODY;
-            // Remove the emoji from the body
-            const cleanedBody = body.replace(/<img[^>]*>/g, '');
-            // Set the cleaned body as an output variable
-            console.log(`::set-output name=cleaned_body::${cleanedBody}`);
+            const body = github.event.comment.body;
+
+            // Regular expression to match all emojis.
+            // The `u` flag enables Unicode-aware matching.
+            const emojiRegex = /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{2B00}\u{2900}\u{303D}\u{A900}\u{AE00}\u{3297}\u{3299}\u{2100}-\u{214F}\u{2300}-\u{23FF}\u{2500}-\u{25FF}\u{203C}\u{2049}]/gu;
+
+            const cleanBody = body.replace(emojiRegex, '');
+
+            // Log the result for debugging
+            core.info(`Original Body: ${body}`);
+            core.info(`Cleaned Body: ${cleanBody}`);
+
+            // Set the cleaned body as a step output
+            core.setOutput('value', cleanBody);
       
       - name: Echo cleaned body
         run: echo "${{ steps.body-cleanup.outputs.cleaned_body }}"
