@@ -1,4 +1,5 @@
-name: "Debug ${ github.ref_name }"
+name: Debug workflow
+run-name: Debug workflow for ${{ github.ref_name }}
 
 # on:
 #   issue_comment:
