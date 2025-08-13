@@ -1,5 +1,5 @@
 <!-- 🤖 lines with this symbol are special and used by the CI. please don't edit or delete them. cheers! -->
-<!-- 🤖 PR -->
+<!-- 🤖 FORWARD PORT BEGIN -->
 
 # Proposed changes
 <!-- Describe the changes proposed in this PR.
@@ -17,10 +17,12 @@ being proposed in this PR (i.e. feat, test, fix, ci, chore, docs).
 <!-- If any -->
 
 ### Forward porting
+<!-- 🤖 FORWARD PORTING BEGIN -->
 <!-- This change MUST also be proposed to all newer, and still supported,
 releases. List the corresponding PRs, or ignore if not applicable. -->
 
 
+<!-- 🤖 FORWARD PORTING END -->
 ## Checklist
 <!-- Go over all the following points, and put an `x` in all the boxes
 that apply. -->

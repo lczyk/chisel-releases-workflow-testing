@@ -1,0 +1,67 @@
+#!/bin/bash
+
+source _common.sh
+
+function test_find_between_markers() {
+    local begin_marker="<start>"
+    local end_marker="<end>"
+    local text="This is some text <start>with content<end> and more text."
+    local expected="with content"
+
+    local result
+    result=$(find_between_markers "$text" "$begin_marker" "$end_marker")
+    assert_equals "$expected" "$result" "Should find content between markers"
+}
+
+function test_find_between_markers_no_content() {
+    local begin_marker="<start>"
+    local end_marker="<end>"
+    local text="This is some text <start><end> and more text."
+    local expected=""
+
+    local result
+    result=$(find_between_markers "$text" "$begin_marker" "$end_marker")
+    assert_equals "$expected" "$result" "Should return empty string when no content between markers"
+}
+
+function test_find_between_markers_no_markers() {
+    local text="This is some text without markers."
+    local begin_marker="<start>"
+    local end_marker="<end>"
+
+    local result
+    result=$(find_between_markers "$text" "$begin_marker" "$end_marker")
+    assert_equals "" "$result" "Should return empty string when markers are not present"
+}
+
+function test_find_between_markers_empty_text() {
+    local begin_marker="<start>"
+    local end_marker="<end>"
+    local text=""
+
+    local result
+    result=$(find_between_markers "$text" "$begin_marker" "$end_marker")
+    assert_equals "" "$result" "Should return empty string for empty text"
+}
+
+function test_find_between_markers_does_not_leak_locals() {
+    local begin_marker="<start>"
+    local end_marker="<end>"
+    local text="This is some text <start>with content<end> and more text."
+
+    find_between_markers "$text" "$begin_marker" "$end_marker" &>/dev/null
+
+    # Check if the result variable is not set
+    assert_not_set "result" "Should not leak 'result' variable outside the function"
+}
+
+function test_find_between_markers_with_spaces() {
+    local begin_marker="<!-- BEGIN -->"
+    local end_marker="<!-- END -->"
+    local text="This is some text <!-- BEGIN -->with spaces<!-- END --> and more text."
+    local expected="with spaces"
+
+    local result
+    result=$(find_between_markers "$text" "$begin_marker" "$end_marker")
+    assert_equals "$expected" "$result" "Should find content with spaces between markers"
+}

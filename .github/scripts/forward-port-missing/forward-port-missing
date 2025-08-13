@@ -1,4 +1,72 @@
 #!/bin/bash
 
-echo "forward-port-missing placeholder script"
-echo "args:" "$@"
+set -euo pipefail
+
+###
+
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+function _info() {
+    echo -e "${BLUE}INFO: $1${NC}"
+}
+
+function _error() {
+    echo -e "${RED}ERROR: $1${NC}" >&2
+}
+
+function _fatal() {
+    _error "$1"; exit 1;
+}
+
+####
+
+function find_between_markers() {
+    local text="$1"
+    local begin_marker="$2"
+    local end_marker="$3"
+
+    [[ -z "$begin_marker" ]] && \
+        _fatal "find_between_markers: Missing begin marker."
+    [[ -z "$end_marker" ]] && \
+        _fatal "find_between_markers: Missing end marker."
+
+    local result=""
+    trap 'echo "${result:-}"' RETURN
+
+    # no text or markers, return empty string
+    [[ -z "$text" ]] && exit 0
+    [[ "$text" == *"$begin_marker"* ]] || exit 0
+    [[ "$text" == *"$end_marker"* ]] || exit 0
+
+    result="${text#*"$begin_marker"}"
+    result="${result%%"$end_marker"*}"
+}
+
+####
+
+START_MARKER="<!-- 🤖 FORWARD PORTING BEGIN -->"
+END_MARKER="<!-- 🤖 FORWARD PORTING END -->"
+
+function main() {
+    local body="$1"
+    [[ -n "$body" ]] || \
+        _fatal "No body provided. Exiting."
+
+    local forward_porting=$(find_between_markers "$body" "$START_MARKER" "$END_MARKER")
+    if [[ -z "$forward_porting" ]]; then
+        _info "No forward porting section found."
+        echo "No forward porting section found in the PR body."
+        exit 0
+    fi
+
+    _info "Forward porting section found:"
+    echo "$forward_porting"    
+}
+
+# Check if the script is being run directly or sourced
+# If sourced, do not execute main
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi
