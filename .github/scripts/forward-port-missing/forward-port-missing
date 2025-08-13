@@ -44,6 +44,33 @@ function find_between_markers() {
     result="${result%%"$end_marker"*}"
 }
 
+# Find all issue numbers in the text
+# Returns a sorted list of unique issue numbers without the '#' prefix
+# Example: "Fixes #123, #456" will return "123 456"
+# If no issue numbers are found, returns an empty string
+function find_issue_numbers() {
+    local text="$1"
+
+    local result=""
+    trap 'echo "${result:-}"' RETURN
+
+    [[ -z "$text" ]] && exit 0
+
+    # TODO: this is a bit messy, but works for now
+    result=$(
+        echo "$text" |
+        # match only one '#' followed by digits and grab one more character
+        grep -o '[^#]#[0-9]\+.' |
+        # allow the last character to be a common punctuation marker, a space or a number
+        # then blow up the first character, the last character (unless its a digit) and the '#'
+        sed -n '/.*[0-9 ,.;()]$/ { s/^.//; s/[^0-9]$//; s/#//; p }' |
+        # sort and unique
+        sort -u |
+        # swap from newlines to spaces and remove trailing
+        tr '\n' ' ' | sed 's/ $//'
+    )
+}
+
 ####
 
 START_MARKER="<!-- 🤖 FORWARD PORTING BEGIN -->"
