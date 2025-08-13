@@ -4,18 +4,18 @@ on:
   issue_comment:
     types: [created, edited]
 
-env:
-  PR_MARKER: "<!-- 🤖 PR -->"
 
 jobs:
   deploy:
+    vars:
+      PR_MARKER: "<!-- 🤖 PR -->"
     runs-on: ubuntu-latest
     # Check that we are a PR event and that the comment has the special marker
     # We want to check that in the `if` condition so we don't even launch the 
     # job and not waste resources.
     if: |
       github.event.issue.pull_request && 
-      contains(github.event.comment.body, ${ env.PR_MARKER })
+      contains(github.event.comment.body, vars.PR_MARKER)
     steps:
       - name: Debug
         run: |
