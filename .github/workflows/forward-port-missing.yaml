@@ -50,4 +50,4 @@ jobs:
       - name: "Check for forward port"
         run: |
           ln -s "${{ env.files_main }}/.github/scripts/forward-port-missing/forward-port-missing" .
-          ./forward-port-missing "${{ github.event.pull_request.body }}"
+          ./forward-port-missing "${{ github.event.pull_request.body }}" "${{ github.base_ref }}"
