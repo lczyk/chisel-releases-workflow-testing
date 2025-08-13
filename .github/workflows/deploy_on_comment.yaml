@@ -28,7 +28,8 @@ on:
   page_build:
   public:
   pull_request:
-    branches: [...]
+    branches:
+      - "ubuntu-*"
     types:
       - assigned
       - unassigned
