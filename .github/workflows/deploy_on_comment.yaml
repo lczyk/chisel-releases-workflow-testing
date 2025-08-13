@@ -28,6 +28,7 @@ on:
   page_build:
   public:
   pull_request:
+    branches: [...]
     types:
       - assigned
       - unassigned
