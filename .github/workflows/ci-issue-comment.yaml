@@ -6,6 +6,8 @@ run-name: Forward port missing ${{ github.ref }}
 on:
   issue_comment:
     types: [created, edited, deleted]
+    branches:
+      - "ubuntu-*"
 
 # jobs:
 #   forward-port-missing:
