@@ -20,7 +20,7 @@ function _fatal() {
     _error "$1"; exit 1;
 }
 
-####
+################################################################################
 
 # Find text between two markers
 # Returns the text between the markers, or an empty string if not found
@@ -91,7 +91,49 @@ function find_issue_numbers() {
     )
 }
 
-####
+################################################################################
+
+# Given a current version and a list of other versions,
+# find out which forward ports are needed.
+# For example, if called with "1.9.0" and "1.7.0 1.8.0 1.9.1 1.10.0",
+# it should return "1.9.1 1.10.0"
+# The versions need not be sorted
+function find_greater_versions() {
+    local this_version="$1"
+    local other_versions="${@:2}"
+
+    [[ -z "$other_versions" ]] && \
+        _fatal "find_greater_versions: No other versions provided."
+
+    function drop_non_version() {
+        sed 's/[^0-9.]*//g'
+    }
+
+    local this_version_cmp=$(echo "$this_version" | drop_non_version)
+    [[ -z "$this_version_cmp" ]] && \
+        _fatal "find_greater_versions: Invalid this version '$this_version'."
+
+    local result=()
+
+    for version in $other_versions; do
+        local version_cmp=$(echo "$version" | drop_non_version)
+        [[ -z "$version_cmp" ]] && continue
+        # # Check if the version is greater than the current version
+        if [[ "$version_cmp" > "$this_version_cmp" ]]; then
+            # Add the version to the result
+            result+=("$version")
+        fi
+    done
+
+    # Final processing
+    printf "%s\n" "${result[@]}" |
+        # sort and unique
+        sort -u |
+        # swap from newlines to spaces and remove trailing space
+        tr '\n' ' ' | sed 's/ $//'
+}
+
+################################################################################
 
 START_MARKER="<!-- 🤖 FORWARD PORTING BEGIN -->"
 END_MARKER="<!-- 🤖 FORWARD PORTING END -->"
@@ -141,7 +183,26 @@ function main() {
 
     local issue_numbers=$(find_issue_numbers "$forward_porting")
     if [[ -n "$issue_numbers" ]]; then
-        _fatal "Issue numbers not implemented"        
+        if [[ "$ubuntu_version" == "${UBUNTU_VERSIONS[-1]}" ]]; then
+            _info "This is a PR into the latest Ubuntu version '${UBUNTU_VERSIONS[-1]}'."
+            _info "Found issue numbers in the forward porting section: $issue_numbers"
+            _info "No action needed, as this is the latest version."
+            exit 0
+        else
+            _info "This is a PR into an older Ubuntu version '$ubuntu_version'."
+            _info "Found issue numbers in the forward porting section: $issue_numbers"
+            # TODO: Crawl the issues to find out what, if any, ubuntu branches they point to
+            #       and then compare with the forward ports which are needed.
+
+            local greater_versions=$(find_greater_versions "$ubuntu_version" "${UBUNTU_VERSIONS[@]}")
+            [[ -n "$greater_versions" ]] || \
+                _fatal "No greater versions found for the Ubuntu version '$ubuntu_version'."
+            _info "The following greater versions are available: $greater_versions"
+           # TODO: We know what forward ports are needed, and we know which branches do
+           #       we point to as forward ports. We just need to check if there are any
+           #       forward ports missing.
+            exit 0
+        fi
     else
         # Is this a pr into the latest Ubuntu version?
         if [[ "$ubuntu_version" == "${UBUNTU_VERSIONS[-1]}" ]]; then
