@@ -52,17 +52,14 @@ END_MARKER="<!-- 🤖 FORWARD PORTING END -->"
 function main() {
     local body="$1"
     [[ -n "$body" ]] || \
-        _fatal "No body provided. Exiting."
+        _fatal "No body provided."
 
     local forward_porting=$(find_between_markers "$body" "$START_MARKER" "$END_MARKER")
-    if [[ -z "$forward_porting" ]]; then
-        _info "No forward porting section found."
-        echo "No forward porting section found in the PR body."
-        exit 0
-    fi
+    [[ -n "$forward_porting" ]] || \
+        _fatal "No forward porting section found in the body."
 
     _info "Forward porting section found:"
-    echo "$forward_porting"    
+    echo "$forward_porting"
 }
 
 # Check if the script is being run directly or sourced
