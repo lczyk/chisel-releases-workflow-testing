@@ -113,20 +113,6 @@ function main() {
     [[ -n "$base_ref" ]] || \
         _fatal "No base ref provided. Expected something like 'ubuntu-24.04'"
 
-    # Find the issue numbers in the body of the PR
-    local forward_porting=$(find_between_markers "$body" "$START_MARKER" "$END_MARKER")
-    [[ -n "$forward_porting" ]] || \
-        _fatal "No forward porting section found in the body."
-
-    _info "Forward porting section found:"
-    echo "$forward_porting"
-
-    local issue_numbers=$(find_issue_numbers "$forward_porting")
-    [[ -n "$issue_numbers" ]] || \
-        _fatal "No issue numbers found in the forward porting section."
-
-    _info "Issue numbers found: $issue_numbers"
-
     # Find out which ubuntu version is this PR for
     local ubuntu_version=$(echo "$base_ref" | sed -n 's/^ubuntu-\([0-9]\+\.[0-9]\+\)/\1/p')
     [[ -n "$ubuntu_version" ]] || \
@@ -144,6 +130,22 @@ function main() {
         _fatal "The Ubuntu version '$ubuntu_version' is not supported by this script. Supported versions are: ${UBUNTU_VERSIONS[*]}."
 
     _info "Ubuntu version '$ubuntu_version' is supported."
+
+    # Find the issue numbers in the body of the PR
+    local forward_porting=$(find_between_markers "$body" "$START_MARKER" "$END_MARKER")
+    [[ -n "$forward_porting" ]] || \
+        _fatal "No forward porting section found in the body."
+
+    _info "Forward porting section found:"
+    echo "$forward_porting"
+
+    local issue_numbers=$(find_issue_numbers "$forward_porting")
+    if [[ -n "$issue_numbers" ]]; then
+        _fatal "Issue numbers not implemented"        
+    else
+        _fatal "No issue numbers not implemented"
+    fi
+
 }
 
 # Check if the script is being run directly or sourced
