@@ -24,6 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       files_main: "main-files"
+      # set the GitHub token to allow the script to add labels to the PR with
+      # the `gh` CLI
+      GH_TOKEN: ${{ github.token }} 
+
     steps:
       - uses: actions/checkout@v4
         with:
