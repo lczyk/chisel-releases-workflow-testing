@@ -16,6 +16,14 @@ jobs:
     if: |
       (github.event.action == 'opened' && github.event.pull_request.body) ||
       (github.event.action == 'edited' && github.event.changes.body)
-    # runs-on: ubuntu-latest
+    
+    # We need write permissions to the pull request
+    # to be able to update the labels
+    permissions:
+      pull-requests: write
+
+    # Call the forward-port-missing workflow
+    # It will be called with the same event payload as this workflow
+    # so it can access the PR body (github.event.pull_request.body) 
     name: Forward port missing
     uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
