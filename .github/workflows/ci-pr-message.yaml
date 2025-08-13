@@ -18,7 +18,9 @@ jobs:
   #       run: echo '${{ toJson(github) }}'
 
   forward-port-missing:
-    if: github.event.action == 'edited' && github.event.changes.body
+    if: |
+      # There were changes to the PR body
+      github.event.action == 'edited' && github.event.changes.body
     # runs-on: ubuntu-latest
     name: Forward port missing
     uses: lczyk/chisel-releases-workflow-testing/.github/workflows/forward-port-missing.yaml@main
