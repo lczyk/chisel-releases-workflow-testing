@@ -220,7 +220,19 @@ function main() {
 function _mark_this_PR_as_forward_port_missing() {
     # TODO: This function should mark the PR as missing forward porting
     # For now, we just print a message
-    _fatal "Marking this PR as missing forward porting is not implemented yet."
+    # _fatal "Marking this PR as missing forward porting is not implemented yet."
+    # Check if we're running in a GitHub Actions environment
+    if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+        # Use GitHub CLI to list what labels are available for this PR
+        local pr_number="${GITHUB_REF##*/}" # Extract PR number from GITHUB_REF
+        _info "Marking PR #$pr_number as missing forward porting."
+        gh pr edit "$pr_number" --add-label "forward port missing" || \
+            _fatal "Failed to mark PR #$pr_number as missing forward porting. Please check the GitHub CLI configuration."
+    else
+        # If not in GitHub Actions, just print a message
+        _info "This PR is missing forward porting. Please check the forward porting section."
+    fi
+    return 0
 }
 
 
