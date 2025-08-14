@@ -69,3 +69,12 @@ function test_find_issue_numbers_links_wrong_repo() {
     local result=$(find_issue_numbers "$text")
     assert_equals "$expected" "$result"  "Should not extract issue numbers from links to wrong repo"
 }
+
+function test_find_issue_numbers_short() {
+    # This test used to not pass due to how one of the regexes was written.
+    local text='#1'
+    local expected="1"
+    
+    local result=$(find_issue_numbers "$text")
+    assert_equals "$expected" "$result"  "Should handle single short issue number"
+}

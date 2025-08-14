@@ -78,8 +78,9 @@ function find_issue_numbers() {
     # Extract issue numbers in the format #123, #456, etc.
     result=$(
         echo "$text" |
-        # match only one '#' followed by digits and grab one more character
-        grep -o '[^#]#[0-9]\+.' |
+        # match only one '#' followed by digits and, optionally, grab one more character
+        # we need the Perl regex for the lookbehind assertion
+        grep -oP '(?<!#)#[0-9]+.?' |
         # allow the last character to be a common punctuation marker, a space or a number
         # then blow up the first character, the last character (unless its a digit) and the '#'
         sed -n '/.*[0-9 ,.;()]$/ { s/^.//; s/[^0-9]$//; s/#//; p }'
