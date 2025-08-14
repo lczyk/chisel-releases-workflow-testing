@@ -52,12 +52,12 @@ function test_find_issue_numbers_sort_and_unique() {
 }
 
 function test_find_issue_numbers_links() {
-    local text=$(cat <<EOF
-        Find forward-port [here](https://github.com/canonical/chisel-releases/pull/123)
-        and, with http as opposed to https [here](http://github.com/canonical/chisel-releases/pull/456)
-        and even without any protocol [here](github.com/canonical/chisel-releases/pull/789).
-EOF
+    local text=$(printf "%s\n" \
+        "Find forward-port [here](https://${_DEFAULT_PR_BASE}/123)" \
+        "and, with http as opposed to https [here](http://${_DEFAULT_PR_BASE}/456)" \
+        "and even without any protocol [here](${_DEFAULT_PR_BASE}/789)." \
     )
+
     local expected="123 456 789"
     local result=$(find_issue_numbers "$text")
     assert_equals "$expected" "$result"  "Should extract issue numbers from links"

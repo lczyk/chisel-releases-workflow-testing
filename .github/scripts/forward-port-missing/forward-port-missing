@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-###
+## LOGGING #####################################################################
 
 RED='\033[0;31m'
 BLUE='\033[0;34m'
@@ -20,7 +20,7 @@ function _fatal() {
     _error "$1"; exit 1;
 }
 
-################################################################################
+## FIND BETWEEN MARKERS ########################################################
 
 # Find text between two markers
 # Returns the text between the markers, or an empty string if not found
@@ -50,8 +50,13 @@ function find_between_markers() {
 # Returns a sorted list of unique issue numbers without the '#' prefix
 # Example: "Fixes #123, #456" will return "123 456"
 # If no issue numbers are found, returns an empty string
+
+# _DEFAULT_PR_BASE='github.com/canonical/chisel-releases/pull'
+_DEFAULT_PR_BASE='github.com/lczyk/chisel-releases-workflow-testing/pull'
+
 function find_issue_numbers() {
     local text="$1"
+    local pr_base="${2:-$_DEFAULT_PR_BASE}"
 
     local result=""
     trap 'echo "${result:-}"' RETURN
@@ -71,7 +76,6 @@ function find_issue_numbers() {
     # Extract issue numbers which are markdown links
     # e.g. [here](http://github.com/canonical/chisel-releases/pull/123)
     # We accept http, https and no protocol links
-    local pr_base='github.com/canonical/chisel-releases/pull'
     result+=$(
         echo "$text" |
         # NOTE: we do need the `-P` option for Perl regex support
@@ -91,7 +95,7 @@ function find_issue_numbers() {
     )
 }
 
-################################################################################
+## FIND GREATER VERSIONS #######################################################
 
 # Given a current version and a list of other versions,
 # find out which forward ports are needed.
@@ -133,7 +137,7 @@ function find_greater_versions() {
         tr '\n' ' ' | sed 's/ $//'
 }
 
-################################################################################
+## MAIN ########################################################################
 
 START_MARKER="<!-- 🤖 FORWARD PORTING BEGIN -->"
 END_MARKER="<!-- 🤖 FORWARD PORTING END -->"
@@ -191,8 +195,9 @@ function main() {
         else
             _info "This is a PR into an older Ubuntu version '$ubuntu_version'."
             _info "Found issue numbers in the forward porting section: $issue_numbers"
-            # TODO: Crawl the issues to find out what, if any, ubuntu branches they point to
-            #       and then compare with the forward ports which are needed.
+            
+            linked_versions=$(_find_versions_in_linked_issues "$issue_numbers")
+            echo "Linked versions found: $linked_versions"
 
             local greater_versions=$(find_greater_versions "$ubuntu_version" "${UBUNTU_VERSIONS[@]}")
             [[ -n "$greater_versions" ]] || \
@@ -234,9 +239,30 @@ function _mark_this_PR_as_forward_port_missing() {
     return 0
 }
 
+function _find_versions_in_linked_issues() {
+    local issue_numbers="$1"
+    [[ -n "$issue_numbers" ]] || \
+        _fatal "_find_versions_in_linked_issues: No issue numbers provided."
+
+    local result=()
+    for issue in $issue_numbers; do
+        echo "Processing issue #$issue"
+        # We get a bunch of issue numbers., They may or, indeed, may not exist on
+        # 
+        # We need to get the base_ref for each issue number
+        # 
+        result+=("v1.0.0")  # Simulated version
+    done
+
+    printf "%s\n" "${result[@]}" |
+        sort -u |
+        tr '\n' ' ' | sed 's/ $//'
+}
+
+## ENTRY POINT #################################################################
 
 # Check if the script is being run directly or sourced
-# If sourced, do not execute main
+# If sourced, do not execute main (we source this script in tests)
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi
