@@ -187,7 +187,13 @@ function main() {
     [[ "$is_supported" == true ]] || \
         _fatal "The Ubuntu version '$ubuntu_version' is not supported by this script. Supported versions are: ${UBUNTU_VERSIONS[*]}."
 
-    # _info "This is a PR into Ubuntu version '$ubuntu_version'"
+    local is_pr_into_latest=false
+    if [[ "$ubuntu_version" == "${UBUNTU_VERSIONS[-1]}" ]]; then
+        _info "This is a PR into the latest Ubuntu version '${UBUNTU_VERSIONS[-1]}'."
+        is_pr_into_latest=true
+    else
+        _info "This is a PR into an older Ubuntu version '$ubuntu_version'."
+    fi
 
     # Find the issue numbers in the body of the PR
     local forward_porting=$(find_between_markers "$body" "$START_MARKER" "$END_MARKER")
@@ -196,16 +202,15 @@ function main() {
 
     _info "Forward porting section found:"
     echo "$forward_porting"
+    
 
     local issue_numbers=$(find_issue_numbers "$forward_porting")
     if [[ -n "$issue_numbers" ]]; then
-        if [[ "$ubuntu_version" == "${UBUNTU_VERSIONS[-1]}" ]]; then
-            _info "This is a PR into the latest Ubuntu version '${UBUNTU_VERSIONS[-1]}'."
+        if [[ "$is_pr_into_latest" == true ]]; then
             _info "Found issue numbers in the forward porting section: $issue_numbers"
             _info "No action needed, as this is the latest version."
             exit 0
         else
-            _info "This is a PR into an older Ubuntu version '$ubuntu_version'."
             _info "Found issue numbers in the forward porting section: $issue_numbers"
             
             linked_versions=$(_find_versions_in_linked_issues "$issue_numbers")
@@ -222,12 +227,10 @@ function main() {
         fi
     else
         # Is this a pr into the latest Ubuntu version?
-        if [[ "$ubuntu_version" == "${UBUNTU_VERSIONS[-1]}" ]]; then
-            _info "This is a PR into the latest Ubuntu version '${UBUNTU_VERSIONS[-1]}'."
+        if [[ "$is_pr_into_latest" == true ]]; then
             _info "No issue numbers found in the forward porting section, but none are needed"
             exit 0
         else
-            _info "This is a PR into an older Ubuntu version '$ubuntu_version'."
             _info "No issue numbers found in the forward porting section, so will mark this PR as missing forward porting."
             _mark_this_PR_as_forward_port_missing || exit 1
         fi
