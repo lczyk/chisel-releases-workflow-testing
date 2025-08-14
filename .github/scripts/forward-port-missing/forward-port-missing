@@ -194,8 +194,8 @@ function main() {
     [[ -n "$forward_porting" ]] || \
         _fatal "No forward porting section found in the body."
 
-    # _info "Forward porting section found:"
-    # echo "$forward_porting"
+    _info "Forward porting section found:"
+    echo "$forward_porting"
 
     local issue_numbers=$(find_issue_numbers "$forward_porting")
     if [[ -n "$issue_numbers" ]]; then
