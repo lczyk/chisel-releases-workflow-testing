@@ -7,6 +7,7 @@ set -euo pipefail
 RED='\033[0;31m'
 BLUE='\033[0;34m'
 YELLOW='\033[0;33m'
+PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
 function _info() {
@@ -26,13 +27,341 @@ function _fatal() {
 }
 
 function _not_implemented() {
-    echo -e "${RED}NOT IMPLEMENTED:${NC} $1" >&2
-    exit 2
+    [[ $# -lt 1 ]] \
+        && echo -e "${RED}NOT IMPLEMENTED:${NC}" >&2 \
+        || echo -e "${RED}NOT IMPLEMENTED:${NC} $1" >&2
+    exit 99
 }
 
+DEBUG="${DEBUG:-}"
+DEBUG_COLOR="$PURPLE"
+
+function _debug() {
+    [[ $# -ne 1 ]] && _fatal "_debug expects exactly one argument, got $#."
+    [[ -z "${DEBUG:-}" ]] && return 0
+
+    local where=""
+    case "${DEBUG,,}" in
+        where) where="(${BASH_SOURCE[1]:-unknown}:${BASH_LINENO[0]:-unknown})" ;;
+        func) where="(${FUNCNAME[1]:-unknown})" ;;
+        *) ;;
+    esac
+
+    echo -e "${DEBUG_COLOR}DEBUG${where}:${NC} $1"
+}
+
+function _debug_var() {
+    [[ $# -ne 1 ]] && _fatal "_debug_var expects exactly one argument, got $#."
+    [[ -z "${DEBUG:-}" ]] && return 0
+
+    local where=""
+    case "${DEBUG,,}" in
+        where) where="(${BASH_SOURCE[1]:-unknown}:${BASH_LINENO[0]:-unknown})" ;;
+        func) where="(${FUNCNAME[1]:-unknown})" ;;
+        *) ;;
+    esac
+
+    local var_name="$1"
+    local -n var="$1"
+    local declare_output=$(declare -p "$var_name" 2>/dev/null || :)
+    if [[ -z "$declare_output" ]]; then
+        echo -e "${DEBUG_COLOR}DEBUG${where}:${NC} Variable '$var_name' is not declared."
+    else
+        if [[ -v var ]]; then
+            if [[ $declare_output =~ "declare -a" ]]; then
+                # Array
+                echo -e "${DEBUG_COLOR}DEBUG${where}:${NC} $var_name = [${var[*]}]"
+            else
+                echo -e "${DEBUG_COLOR}DEBUG${where}:${NC} $var_name = '${var}'"
+            fi
+        else
+            # Might be an associative array or a variable that is not set
+            if [[ $declare_output =~ "declare -A" ]]; then
+                # Associative array
+                local array_repr="{"
+                local -i i=0
+                for key in "${!var[@]}"; do
+                    array_repr+="$key=${var[$key]}"
+                    (( i++ < ${#var[@]} - 1 )) && array_repr+=", "
+                done
+                array_repr+="}"
+                echo -e "${DEBUG_COLOR}DEBUG${where}:${NC} $var_name = ${array_repr}"
+            else
+                # Regular variable not set
+                echo -e "${DEBUG_COLOR}DEBUG${where}:${NC} $var_name is not set"
+            fi
+        fi
+    fi
+}
+
+# function _debug_test() {
+#     _debug_var blah
+#     local blah
+#     _debug_var blah
+#     blah="test"
+#     _debug_var blah
+#     local -A assoc_array
+#     _debug_var assoc_array
+#     assoc_array=([key1]="value1" [key2]="value2")
+#     _debug_var assoc_array
+# }
+
+# _debug_test
+
+## UTILS #######################################################################
+
+function universal_bool_parser() {
+    local value="$1"
+    [[ $# -ne 1 ]] && _fatal "universal_bool_parser expects exactly one argument, got $#."
+    case "$value" in
+        T|true|True|TRUE|yes|Yes|YES|1) echo true ;;
+        F|false|False|FALSE|no|No|NO|0) echo false ;;
+        *) _fatal "Invalid boolean value: $value" ;;
+    esac
+}
+
+## CLI BOILERPLATE #############################################################
+
+function parse_args() {
+    set +u
+
+    # First 5 args are passed by reference
+    [[ $# -lt 5 ]] && _fatal "parse_args expects at least 5 arguments, got $#."
+    local -n _check_repo=$1
+    local -n _check_prs=$2
+    local -n _versions=$3
+    local -n _packages=$4
+    local -n _repo=$5
+    shift 5
+
+    # default values
+    _check_repo=true
+    _check_prs=false
+    _versions=()
+    _packages=()
+    _repo=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -h|--help)
+                echo "$HELP"
+                exit 0
+                ;;
+            -v|--version)
+                echo "$NAME $VERSION"
+                exit 0
+                ;;
+            --check-repo)
+                [[ -z "$2" ]] && _fatal "Missing value for --check-repo."
+                _check_repo=$(universal_bool_parser "$2") || _fatal "Invalid value for --check-repo: $2"; shift 2
+                ;;
+            --check-prs)
+                [[ -z "$2" ]] && _fatal "Missing value for --check-prs."
+                _check_prs=$(universal_bool_parser "$2") || _fatal "Invalid value for --check-prs: $2"; shift 2
+                ;;
+            --versions)
+                [[ -z "$2" ]] && _fatal "Missing value for --versions."
+                local __versions=()
+                IFS=',' read -r -a __versions <<< "$2"; shift 2
+                for version in "${__versions[@]}"; do
+                    [[ ! "$version" =~ ^[0-9]+\.[0-9]+$ ]] && \
+                        _fatal "Invalid version format: '$version'. Expected format is 'XX.XX'."
+                    _versions["$version"]="1"
+                done
+                ;;
+            --packages)
+                [[ -z "$2" ]] && _fatal "Missing value for --packages."
+                local __packages=()
+                IFS=',' read -r -a __packages <<< "$2"; shift 2
+                for package in "${__packages[@]}"; do
+                    [[ "$package" =~ _ ]] && \
+                        _fatal "Invalid package name: '$package'. Package names cannot contain underscores."
+                    _packages["$package"]="1"
+                done
+                ;;
+            *)
+                if [[ -z "$_repo" ]]; then
+                    # First non-option argument is the repo
+                    _repo="$1"; shift
+                else
+                    _error "Unexpected argument: $1"
+                    exit 1
+                fi
+                ;;
+        esac
+    done
+
+    # Validate required arguments
+    [[ -n "$_repo" ]] || _fatal "Repository argument <repo> is required."
+
+
+    # If versions or packages are not set, default to '*'
+    [[ ${#_versions[@]} -eq 0 ]] && _versions=(['*']='1')
+    [[ ${#_packages[@]} -eq 0 ]] && _packages=(['*']='1')
+}
+
+NAME="forward-port-missing"
+HELP="""
+Usage: $NAME [OPTIONS] <repo>
+Check a repo for missing forward porting of packages to Ubuntu releases.
+
+Input:
+  <repo>              The repository to check. This can be a local path
+                      or a remote URL. The repo has to be a Git repository
+                      shaped the \`chisel-releases\` repo -- it has to have
+                      branches named \`ubuntu-<version>\` for each Ubuntu release.
+                      Each branch has to be a valid \`--release\` target for
+                      \`chisel cut\`. This script does not use chisel but it will
+                      assume the same structure. If the repo is a remote URL,
+                      it will be cloned to a temporary directory.
+
+Options:
+  -h, --help          Show this help message and exit.
+  -v, --version       Show script version and exit.
+  
+  --check-repo <T|F>  If true, check the state of the repository pointed to by
+    default: T        <repo>.
+  
+  --check-prs <T|F>   If true, check the state of the PRs to the <repo>. If the
+    default: F        <repo> is a remote URL, this will check the PRs in the
+                      remote repository. If the <repo> is a local path, the
+                      script will attempt to get the remote URL from the
+                      tracking reference.
+  
+  --versions <v...>   Specify the Ubuntu versions to check for forward porting.
+    default: *        This should be a comma-separated list of versions, e.g.,
+                      \"22.04,24.04\". If not specified, it will default to all
+                      the versions found in the repository.
+
+  --packages <p...>   Specify the packages to check for forward porting.
+    default: *        This should be a comma-separated list of package names,
+                      e.g., \"foo,bar\". If not specified, it will default
+                      to all the packages found in every branch.
+"""
+
+VERSION='0.1.0'
+
+## MAIN ENTRY POINT ############################################################
+
 function main() {
+    # We will always need git, so check it early
+    command -v git >/dev/null 2>&1 || \
+        _fatal "Git is not installed. Please install Git to use this script."
+    _debug "Using git version: $(git --version)"
+
+    # Parse arguments
+    local check_repo
+    local check_prs
+    declare -A versions # set of 24.04, 24.10, etc.
+    declare -A packages # set of foo, bar, etc.
+    local repo
+    parse_args check_repo check_prs versions packages repo "$@" || exit 1
+    
+    _debug_var check_repo
+    _debug_var check_prs
+    _debug_var versions
+    _debug_var packages
+    _debug_var repo
+
+    declare -A versions
+
+    # Check if the repo is a path or a URL
+    if [[ -d "$repo" ]]; then
+        repo="$(realpath "$repo")"
+        _debug "Local path: $repo"
+        # It's a local path, check if it's a Git repository
+        [[ -d "$repo/.git" ]] || \
+            _fatal "The specified path '$repo' is not a valid Git repository."
+    elif [[ "$repo" =~ ^https?:// ]]; then
+        _info "Cloning remote repository: $repo"
+        # It's a URL, clone it to a temporary directory
+        local temp_dir
+        temp_dir=$(mktemp -d --tmpdir forward-port-missing-XXXXXX) || \
+            _fatal "Failed to create temporary directory for cloning the repository."
+        _debug "Cloning remote repo to temporary directory: $temp_dir"
+        git clone --quiet "$repo" "$temp_dir" || _fatal "Failed to clone repository from '$repo'."
+        repo="$temp_dir"
+        _debug "Cloned repo"
+
+        # Also pull any branches that might be relevant
+        local remote_branches
+        remote_branches=$(git -C "$repo" branch -r --format='%(refname:short)') || \
+            _fatal "Failed to get remote branches from the repository."
+        # _debug "Remote branches: $(echo "$remote_branches" | tr '\n' ' ')"
+        
+        local -a matching_branches
+        _filter_branches remote_branches versions matching_branches || exit 1
+
+        # Pull all matching branches
+        while IFS= read -r branch; do
+            # Remove 'origin/' prefix if present
+            branch=${branch#origin/}
+            _debug "Pulling branch: $branch"
+            git -C "$repo" fetch --quiet origin "$branch" || \
+                _fatal "Failed to fetch branch '$branch' from the remote repository."
+            git -C "$repo" checkout --quiet "$branch" || \
+                _fatal "Failed to checkout branch '$branch' in the local repository."
+        done <<< "$matching_branches"
+
+    else
+        _fatal "Invalid repository path or URL: '$repo'."
+    fi
+
+    _info "Using repository at: $repo"
+    
+    # Get the remote URL. We only really need it if we are checking PRs, but
+    # like this we are all set for the future.
+    local remote
+    remote=$(git -C "$repo" config --get remote.origin.url) || :
+    _debug "Remote URL: $remote"
+
+    # Get the list of branches in the repository
+    local branches
+    branches=$(git -C "$repo" branch --format='%(refname:short)') || \
+        _fatal "Failed to get branches from the repository."
+
+    # _debug "All branches in the repository: $(echo "$branches" | tr '\n' ' ')"
+    
+    local -a matching_branches
+    _filter_branches branches versions matching_branches || exit 1
+
+    # _debug "Branches in the repository: $(echo "$matching_branches" | tr '\n' ' ')"
+
     _not_implemented "Main is not implemented."
 }
+
+# Filter branches based on the versions and packages specified
+function _filter_branches() {
+    [[ $# -ne 3 ]] && _fatal "_filter_branches expects exactly 3 arguments, got $#."
+    _debug "--- Filtering branches ---"
+
+    # Get the arguments by reference
+    local -n _branches=$1
+    local -n _versions=$2
+    local -n _matching_branches=$3
+
+    _debug "All branches: $(echo "$_branches" | tr '\n' ' ')"
+
+    local branch_pattern="ubuntu-*" # Assuming branches are named like ubuntu-<version>
+    _matching_branches=$(echo "$_branches" | grep -E "$branch_pattern")
+    [[ -z "$_matching_branches" ]] && \
+        _fatal "No branches matching pattern '$branch_pattern' found in the repository."
+    _debug "Branches matching pattern '$branch_pattern': $(echo "$_matching_branches" | tr '\n' ' ')"
+    
+    # Filter according to versions
+    _debug "Versions to match: $(echo "${!_versions[@]}" | tr '\n' ' ')"
+    if [[ ${_versions['*']} == '1' ]]; then
+        _debug "Versions contain '*', not filtering branches."
+    else
+        branch_pattern="ubuntu-($(IFS='|'; echo "${!_versions[*]}"))"
+        _debug "Branch pattern for versions: $branch_pattern"
+        _matching_branches=$(echo "$_matching_branches" | grep -E "$branch_pattern")
+        [[ -z "$_matching_branches" ]] && \
+            _fatal "No branches matching specified versions found in the repository."
+        _debug "Branches matching pattern '$branch_pattern': $(echo "$_matching_branches" | tr '\n' ' ')"
+    fi
+}
+    
 
 function _mark_this_PR_as_forward_port_missing() {
     # Check if we're running in a GitHub Actions environment

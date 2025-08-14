@@ -22,6 +22,9 @@ fi
 # Source the script
 source "$__FORWARD_PORTING_ROOT__/forward-port-missing"
 
+# unset pipefail to avoid issues with error handling in tests
+set +o pipefail
+
 # Additional test helpers
 # (not from bash_unit)
 function assert_not_set() {
@@ -34,6 +37,39 @@ function assert_not_set() {
         else
             echo "Assertion failed: '$var_name' should not be set." >&2
         fi
-        exit 1
+        assert false
     fi
 }
+
+# get the content of stdout and check if it contains the expected text
+function assert_stdout_contains() {
+    local output
+    output=$(timeout 0.1 cat -)
+    if [[ $? -ne 0 ]]; then
+        echo "Error reading from stdout." >&2
+        assert false
+    fi
+    local expected="$1"
+    if [[ "$output" != *"$expected"* ]]; then
+        echo "Assertion failed: Output does not contain expected text." >&2
+        echo "Expected: '$expected'" >&2
+        echo "Actual: '$output'" >&2
+        assert false
+    fi
+}
+
+# function assert_stderr_contains() {
+#     local output
+#     output=$(timeout 0.1 cat - 2>&1 >/dev/null)
+#     if [[ $? -ne 0 ]]; then
+#         echo "Error reading from stderr." >&2
+#         exit 1
+#     fi
+#     local expected="$1"
+#     if [[ "$output" != *"$expected"* ]]; then
+#         echo "Assertion failed: STDERR does not contain expected text." >&2
+#         echo "Expected: '$expected'" >&2
+#         echo "Actual: '$output'" >&2
+#         exit 1
+#     fi
+# }

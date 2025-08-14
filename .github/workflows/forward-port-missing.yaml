@@ -54,4 +54,8 @@ jobs:
       - name: "Check for forward port"
         run: |
           ln -s "${{ env.files_main }}/.github/scripts/forward-port-missing/forward-port-missing" .
-          ./forward-port-missing "${{ github.event.pull_request.body }}" "${{ github.base_ref }}"
+          ./forward-port-missing \
+            --check_repo false \
+            --check_prs true \
+            --versions 20.04,22.04,24.04,25.04 \
+            .

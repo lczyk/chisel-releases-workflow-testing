@@ -1,0 +1,26 @@
+#!/bin/bash
+
+source _common.sh
+
+function test_universal_bool_parser() {
+    assert_equals $(universal_bool_parser "true") "true"
+    assert_equals $(universal_bool_parser "True") "true"
+    assert_equals $(universal_bool_parser "TRUE") "true"
+    assert_equals $(universal_bool_parser "yes") "true"
+    assert_equals $(universal_bool_parser "Yes") "true"
+    assert_equals $(universal_bool_parser "1") "true"
+    assert_equals $(universal_bool_parser "T") "true"
+
+    assert_equals $(universal_bool_parser "false") "false"
+    assert_equals $(universal_bool_parser "False") "false"
+    assert_equals $(universal_bool_parser "FALSE") "false"
+    assert_equals $(universal_bool_parser "no") "false"
+    assert_equals $(universal_bool_parser "No") "false"
+    assert_equals $(universal_bool_parser "0") "false"
+    assert_equals $(universal_bool_parser "F") "false"
+
+    assert_fail "universal_bool_parser"
+    assert_fail "universal_bool_parser 'invalid'"
+    assert_fail "universal_bool_parser 'true false'"
+    assert_fail "universal_bool_parser 'true' 'false'"
+}
