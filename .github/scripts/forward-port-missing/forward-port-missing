@@ -37,17 +37,23 @@ DEBUG="${DEBUG:-}"
 DEBUG_COLOR="$PURPLE"
 
 function _debug() {
-    [[ $# -ne 1 ]] && _fatal "_debug expects exactly one argument, got $#."
-    [[ -z "${DEBUG:-}" ]] && return 0
+    if [[ $# == 1 ]]; then
+        [[ -z "${DEBUG:-}" ]] && return 0
 
-    local where=""
-    case "${DEBUG,,}" in
-        where) where="(${BASH_SOURCE[1]:-unknown}:${BASH_LINENO[0]:-unknown})" ;;
-        func) where="(${FUNCNAME[1]:-unknown})" ;;
-        *) ;;
-    esac
+        local where=""
+        case "${DEBUG,,}" in
+            where) where="(${BASH_SOURCE[1]:-unknown}:${BASH_LINENO[0]:-unknown})" ;;
+            func) where="(${FUNCNAME[1]:-unknown})" ;;
+            *) ;;
+        esac
 
-    echo -e "${DEBUG_COLOR}DEBUG${where}:${NC} $1"
+        echo -e "${DEBUG_COLOR}DEBUG${where}:${NC} $1"
+    elif [[ $# == 2 ]] && [[ "$1" == "-v" ]]; then
+        # dispatch to _debug_var
+        _debug_var "$2"
+    else
+        _fatal "_debug expects one argument or two arguments with the first being '-v'."
+    fi
 }
 
 function _debug_var() {
@@ -94,19 +100,7 @@ function _debug_var() {
     fi
 }
 
-# function _debug_test() {
-#     _debug_var blah
-#     local blah
-#     _debug_var blah
-#     blah="test"
-#     _debug_var blah
-#     local -A assoc_array
-#     _debug_var assoc_array
-#     assoc_array=([key1]="value1" [key2]="value2")
-#     _debug_var assoc_array
-# }
-
-# _debug_test
+# function _debug() { :; }
 
 ## UTILS #######################################################################
 
@@ -184,8 +178,7 @@ function parse_args() {
                     # First non-option argument is the repo
                     _repo="$1"; shift
                 else
-                    _error "Unexpected argument: $1"
-                    exit 1
+                    _fatal "Unexpected argument: $1"
                 fi
                 ;;
         esac
@@ -257,13 +250,17 @@ function main() {
     local repo
     parse_args check_repo check_prs versions packages repo "$@" || exit 1
     
-    _debug_var check_repo
-    _debug_var check_prs
-    _debug_var versions
-    _debug_var packages
-    _debug_var repo
+    _debug -v check_repo
+    _debug -v check_prs
+    _debug -v versions
+    _debug -v packages
+    _debug -v repo
 
-    declare -A versions
+    # if both check_repo and check_prs are false, we are done, but maybe print a warning
+    if [[ "$check_repo" == false && "$check_prs" == false ]]; then
+        _warn "Both \`--check-repo\` and \`--check-prs\` are set to false. This script will not perform any checks. If this is intended, you can ignore this warning."
+        return 0
+    fi
 
     # Check if the repo is a path or a URL
     if [[ -d "$repo" ]]; then
@@ -272,6 +269,7 @@ function main() {
         # It's a local path, check if it's a Git repository
         [[ -d "$repo/.git" ]] || \
             _fatal "The specified path '$repo' is not a valid Git repository."
+
     elif [[ "$repo" =~ ^https?:// ]]; then
         _info "Cloning remote repository: $repo"
         # It's a URL, clone it to a temporary directory
@@ -320,12 +318,20 @@ function main() {
     branches=$(git -C "$repo" branch --format='%(refname:short)') || \
         _fatal "Failed to get branches from the repository."
 
-    # _debug "All branches in the repository: $(echo "$branches" | tr '\n' ' ')"
-    
+    # filter down to branches that match the versions and packages
     local -a matching_branches
     _filter_branches branches versions matching_branches || exit 1
 
-    # _debug "Branches in the repository: $(echo "$matching_branches" | tr '\n' ' ')"
+    ####
+
+    # Do the repo check
+    if [[ "$check_repo" == true ]]; then
+        _not_implemented "Checking repo is not implemented yet."
+    fi
+
+    if [[ "$check_prs" == true ]]; then
+        _not_implemented "Checking PRs is not implemented yet."    
+    fi
 
     _not_implemented "Main is not implemented."
 }
