@@ -1,0 +1,7 @@
+#!/bin/bash
+
+source _common.sh
+
+function test() {
+    assert "true" "This test should always pass."
+}
