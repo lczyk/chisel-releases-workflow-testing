@@ -9,9 +9,9 @@ import shutil
 from dataclasses import dataclass, replace
 import json
 from typing import no_type_check
+import os
 
-
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 
 ## CLI #########################################################################
@@ -125,7 +125,7 @@ def parse_args() -> Args:
     )
 
 
-GIT_PATH = "git"
+GIT_PATH = os.environ.get("GIT_PATH", "git")
 
 
 def git(command: tuple[str, ...], cwd: str | Path | None = None) -> str:
