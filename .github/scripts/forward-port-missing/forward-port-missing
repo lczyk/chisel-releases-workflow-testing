@@ -10,20 +10,32 @@ YELLOW='\033[0;33m'
 PURPLE='\033[0;35m'
 NC='\033[0m' # No Color
 
+# 0 - debug
+# 1 - info
+# 2 - warn
+# 3 - error
+# 4 - fatal
+LOG_LEVEL=1
+
 function _info() {
+    [[ $LOG_LEVEL -gt 1 ]] && return 0
     echo -e "${BLUE}INFO:${NC} $1"
 }
 
-function _error() {
-    echo -e "${RED}ERROR:${NC} $1" >&2
-}
-
 function _warn() {
+    [[ $LOG_LEVEL -gt 2 ]] && return 0
     echo -e "${YELLOW}WARNING:${NC} $1" >&2
 }
 
+function _error() {
+    [[ $LOG_LEVEL -gt 3 ]] && return 0
+    echo -e "${RED}ERROR:${NC} $1" >&2
+}
+
 function _fatal() {
-    _error "$1"; exit 1;
+    [[ $LOG_LEVEL -gt 4 ]] && return 0
+    echo -e "${RED}FATAL:${NC} $1" >&2
+    exit 1
 }
 
 function _not_implemented() {
@@ -37,9 +49,10 @@ DEBUG="${DEBUG:-}"
 DEBUG_COLOR="$PURPLE"
 
 function _debug() {
+    # enable when logging level is set to debug OR DEBUG is set
+    [[ -z "${DEBUG:-}" ]] && [[ $LOG_LEVEL -gt 0 ]] && return 0
+    
     if [[ $# == 1 ]]; then
-        [[ -z "${DEBUG:-}" ]] && return 0
-
         local where=""
         case "${DEBUG,,}" in
             where) where="(${BASH_SOURCE[1]:-unknown}:${BASH_LINENO[0]:-unknown})" ;;
@@ -114,23 +127,81 @@ function universal_bool_parser() {
     esac
 }
 
+# Given a current version and a list of other versions,
+# find out which forward ports are needed.
+# For example, if called with "1.9.0" and "1.7.0 1.8.0 1.9.1 1.10.0",
+# it should return "1.9.1 1.10.0"
+# The versions need not be sorted
+function find_greater_versions() {
+    local this_version="$1"
+    local other_versions="${@:2}"
+
+    [[ -z "$other_versions" ]] && \
+        _fatal "find_greater_versions: No other versions provided."
+
+    function drop_non_version() {
+        sed 's/[^0-9.]*//g'
+    }
+
+    local this_version_cmp=$(echo "$this_version" | drop_non_version)
+    [[ -z "$this_version_cmp" ]] && \
+        _fatal "find_greater_versions: Invalid this version '$this_version'."
+
+    local result=()
+
+    for version in $other_versions; do
+        local version_cmp=$(echo "$version" | drop_non_version)
+        [[ -z "$version_cmp" ]] && continue
+        # # Check if the version is greater than the current version
+        if [[ "$version_cmp" > "$this_version_cmp" ]]; then
+            # Add the version to the result
+            result+=("$version")
+        fi
+    done
+
+    # Final processing
+    printf "%s\n" "${result[@]}" |
+        # sort and unique
+        sort -u |
+        # swap from newlines to spaces and remove trailing space
+        tr '\n' ' ' | sed 's/ $//'
+}
+
+function ubuntu_number_to_colloquial() {
+    [[ $# -ne 1 ]] && _fatal "ubuntu_number_to_colloquial expects exactly one argument, got $#."
+    local version="$1"
+    case "$version" in
+        20.04) echo "focal" ;;
+        22.04) echo "jammy" ;;
+        22.10) echo "kinetic" ;;
+        23.04) echo "lunar" ;;
+        23.10) echo "mantic" ;;
+        24.04) echo "noble" ;;
+        24.10) echo "oracular" ;;
+        25.04) echo "plucky" ;;
+        *) _fatal "Unknown Ubuntu version: $version" ;;
+    esac
+}
+
 ## CLI BOILERPLATE #############################################################
 
 function parse_args() {
     set +u
 
-    # First 5 args are passed by reference
-    [[ $# -lt 5 ]] && _fatal "parse_args expects at least 5 arguments, got $#."
+    # First 6 args are passed by reference
+    [[ $# -lt 6 ]] && _fatal "parse_args expects at least 6 arguments, got $#."
     local -n _check_repo=$1
     local -n _check_prs=$2
-    local -n _versions=$3
-    local -n _packages=$4
-    local -n _repo=$5
-    shift 5
+    local -n _log_level=$3
+    local -n _versions=$4
+    local -n _packages=$5
+    local -n _repo=$6
+    shift 6
 
     # default values
     _check_repo=true
     _check_prs=false
+    _log_level=1
     _versions=()
     _packages=()
     _repo=""
@@ -152,6 +223,18 @@ function parse_args() {
             --check-prs)
                 [[ -z "$2" ]] && _fatal "Missing value for --check-prs."
                 _check_prs=$(universal_bool_parser "$2") || _fatal "Invalid value for --check-prs: $2"; shift 2
+                ;;
+            --log-level)
+                [[ -z "$2" ]] && _fatal "Missing value for --log-level."
+                case "$2" in
+                    0|D|DEBUG|debug) _log_level=0 ;;
+                    1|I|INFO|info) _log_level=1 ;;
+                    2|W|WARN|warn) _log_level=2 ;;
+                    3|E|ERROR|error) _log_level=3 ;;
+                    4|F|FATAL|fatal) _log_level=4 ;;
+                    *) _fatal "Invalid log level: $2. Possible values are: debug, info, warn, error, fatal." ;;
+                esac
+                shift 2
                 ;;
             --versions)
                 [[ -z "$2" ]] && _fatal "Missing value for --versions."
@@ -191,6 +274,8 @@ function parse_args() {
     # If versions or packages are not set, default to '*'
     [[ ${#_versions[@]} -eq 0 ]] && _versions=(['*']='1')
     [[ ${#_packages[@]} -eq 0 ]] && _packages=(['*']='1')
+
+    return 0
 }
 
 NAME="forward-port-missing"
@@ -211,6 +296,8 @@ Input:
 Options:
   -h, --help          Show this help message and exit.
   -v, --version       Show script version and exit.
+  --log-level <level> Set the log level. Possible values are:
+    default: info     debug, info, warn, error, fatal.
   
   --check-repo <T|F>  If true, check the state of the repository pointed to by
     default: T        <repo>.
@@ -245,13 +332,18 @@ function main() {
     # Parse arguments
     local check_repo
     local check_prs
+    local log_level
     declare -A versions # set of 24.04, 24.10, etc.
     declare -A packages # set of foo, bar, etc.
     local repo
-    parse_args check_repo check_prs versions packages repo "$@" || exit 1
+    parse_args check_repo check_prs log_level versions packages repo "$@" || exit 1
     
+    # Set the log level
+    LOG_LEVEL="$log_level"
+
     _debug -v check_repo
     _debug -v check_prs
+    _debug -v log_level
     _debug -v versions
     _debug -v packages
     _debug -v repo
@@ -285,7 +377,6 @@ function main() {
         local remote_branches
         remote_branches=$(git -C "$repo" branch -r --format='%(refname:short)') || \
             _fatal "Failed to get remote branches from the repository."
-        # _debug "Remote branches: $(echo "$remote_branches" | tr '\n' ' ')"
         
         local -a matching_branches
         _filter_branches remote_branches versions matching_branches || exit 1
@@ -322,18 +413,151 @@ function main() {
     local -a matching_branches
     _filter_branches branches versions matching_branches || exit 1
 
-    ####
+    # Exit code to return at the end
+    local _exit_code=0
 
-    # Do the repo check
+    #### Do the repo check ####
+
     if [[ "$check_repo" == true ]]; then
-        _not_implemented "Checking repo is not implemented yet."
+        # For each branch, list all the packages in the slices directory
+        _debug "Checking branches for forward porting..."
+        local -A packages_in_branches
+        for branch in $matching_branches; do
+            _debug "Checking branch: $branch"
+            # local git_command="git -C \"$repo\" checkout --quiet \"$branch\""
+            git -C "$repo" checkout --quiet "$branch" || \
+                _fatal "Failed to checkout branch '$branch' in the local repository."
+            if [[ ! $(git -C "$repo" status) =~ "nothing to commit, working tree clean" ]]; then
+                _warn "Branch '$branch' has uncommitted changes or is not clean. Skipping this branch."
+                continue
+            fi
+            local branch_packages
+            branch_packages=$(find "$repo/slices" -type f -name '*.yaml' -exec basename {} .yaml \;) || \
+                _fatal "Failed to find packages in branch '$branch'."
+            _debug "Found $(echo "$branch_packages" | wc -l) packages in branch '$branch'."
+
+            # Add the packages to the associative array
+            packages_in_branches["$branch"]=$(echo "$branch_packages" | tr '\n' ' ')
+        done
+
+        local -A packages_in_branches_filtered
+        # Filter the packages in each branch according to the packages requested
+        if [[ "${packages['*']:-}" == '1' ]]; then
+            _debug "Packages contain '*', not filtering packages in branches."
+            for branch in "${!packages_in_branches[@]}"; do
+                packages_in_branches_filtered["$branch"]=${packages_in_branches[$branch]}
+            done
+        else
+            _debug "Filtering packages in branches according to specified packages: $(echo "${!packages[@]}" | tr '\n' ' ')"
+            for branch in "${!packages_in_branches[@]}"; do
+                local -a filtered_packages=()
+                for package in ${packages_in_branches[$branch]}; do
+                    [[ -n "${packages[$package]:-}" ]] && filtered_packages+=("$package")
+                done
+                packages_in_branches_filtered["$branch"]="$(printf '%s ' "${filtered_packages[@]}" | sed 's/ $//')"
+            done
+        fi
+
+        for branch in "${!packages_in_branches_filtered[@]}"; do
+            _debug "Branch '$branch' has $(echo "${packages_in_branches_filtered[$branch]}" | wc -w) packages after filtering"
+        done
+
+        for branch in "${!packages_in_branches[@]}"; do
+            _debug "Branch '$branch' has $(echo "${packages_in_branches[$branch]}" | wc -w) packages before filtering"
+        done
+
+        # Go through all the branches and check if the packages are present in all branches
+        local -A seen_packages=()
+        local -a forward_port_missing=()
+        for branch in $matching_branches; do
+
+            # Get the future branches for this branch
+            local -a future_branches
+            future_branches=($(find_greater_versions "$branch" "$matching_branches")) || _fatal "Failed to find future branches for '$branch'."
+            if [[ -z "${future_branches[*]}" ]]; then
+                _info "No future branches found for '$branch'. Skipping."
+                continue
+            fi
+            
+            local packages_in_this_branch=(${packages_in_branches_filtered[$branch]})
+
+            for package in "${packages_in_this_branch[@]}"; do
+                if [[ ${seen_packages[$package]} == "1" ]]; then
+                    _debug "Package '$package' already checked in a previous branch. Skipping."
+                    continue
+                fi
+
+                for future_branch in "${future_branches[@]}"; do
+                    _info "Checking '$package' in '$branch' against '$future_branch'"
+
+                    # get the packages in the future branch
+                    local packages_in_future_branch_filtered=(${packages_in_branches_filtered["$future_branch"]})
+                    local packages_in_future_branch=(${packages_in_branches["$future_branch"]})
+                    _debug "Future branch '$future_branch' has $(echo "${packages_in_future_branch_filtered[@]}" | wc -w) packages"
+
+                    # check if the package is quirky
+                    if [[ -n "${QUIRKY_PACKAGES[$package]:-}" ]]; then
+                        # call the quirk function with the package name and the packages in the future branch
+                        _debug "Package '$package' is quirky, checking with quirk function."
+                        local quirk_result
+                        "${QUIRKY_PACKAGES[$package]}" "$package" "$future_branch" "${packages_in_future_branch[@]}" \
+                            && quirk_result=$? || quirk_result=$?
+                        if [[ -z "$quirk_result" ]]; then
+                            _error "Quirk function for package '$package' failed."
+                            continue
+                        fi
+                        if [[ "$quirk_result" -ne 0 ]]; then
+                            _warn "Quirky package '$package' in branch '$branch' is missing forward porting in future branch '$future_branch'."
+                            forward_port_missing+=("$branch:$future_branch:$package")
+                        fi
+                    else
+                        _debug "Package '$package' is not quirky, checking if it is present in future branch '$future_branch'."
+                        local result
+                        _non_quirk "$package" "$future_branch" "${packages_in_future_branch_filtered[@]}" \
+                            && result=$? || result=$?
+                        if [[ -z "$result" ]]; then
+                            _error "Non-quirky package check for '$package' failed."
+                            continue
+                        fi
+                        if [[ "$result" -ne 0 ]]; then
+                            _warn "Package '$package' in branch '$branch' is missing forward porting in future branch '$future_branch'."
+                            forward_port_missing+=("$branch:$future_branch:$package")
+                        fi
+                    fi
+                done
+
+                # Mark the package as seen
+                seen_packages["$package"]="1"
+            done
+        done
+
+        # Print the number of seen packages
+        _info "========== Summary =========="
+        _info "Checked $(echo "${!seen_packages[@]}" | wc -w) unique packages across all branches."
+        _info "Checked $(echo "${!packages_in_branches[@]}" | wc -w) branches"
+        _info "Branches checked: $(echo "${!packages_in_branches[@]}" | tr '\n' ' ')"
+        if [[ ${#forward_port_missing[@]} -eq 0 ]]; then
+            _info "No forward porting issues found. Hooray!"
+        else
+            _info "Found $(echo "${forward_port_missing[@]}" | wc -l) forward porting issues."
+            _exit_code=1
+        fi
+
+        for item in "${forward_port_missing[@]}"; do
+            local branch="${item%%:*}"
+            local future_branch="${item#*:}"
+            future_branch="${future_branch%%:*}"
+            local package="${item##*:}"
+            _info "Package '$package' is missing forward porting from '$branch' to '$future_branch'."
+        done
+
     fi
 
     if [[ "$check_prs" == true ]]; then
         _not_implemented "Checking PRs is not implemented yet."    
     fi
 
-    _not_implemented "Main is not implemented."
+    exit "$_exit_code"
 }
 
 # Filter branches based on the versions and packages specified
@@ -366,8 +590,114 @@ function _filter_branches() {
             _fatal "No branches matching specified versions found in the repository."
         _debug "Branches matching pattern '$branch_pattern': $(echo "$_matching_branches" | tr '\n' ' ')"
     fi
+
+    # Sort matching branches in order from oldest to newest
+    _matching_branches="$(echo "$_matching_branches" | sort -V)"
+    _debug "Sorted matching branches: $(echo "${_matching_branches[@]}" | tr '\n' ' ')"
 }
+
+declare -A QUIRKY_PACKAGES=(
+    ["libc6"]="_libc6_quirk"
+)
+
+_GET_PACKAGE_LIST_TEMP_DIR=""
+
+function _get_package_list() {
+    [[ $# -ne 3 ]] && _fatal "_get_package_list expects exactly 3 arguments, got $#."
+    local future_branch=$1
+    local suite=$2
+    local -n _packages=$3
+
+    local future_branch_colloquial=$(ubuntu_number_to_colloquial "${future_branch##*-}") || \
+        _fatal "Failed to convert future branch '$future_branch' to colloquial version."
+
+    # Make the temporary directory if it doesn't exist
+    if [[ -z "$_GET_PACKAGE_LIST_TEMP_DIR" ]]; then
+        _GET_PACKAGE_LIST_TEMP_DIR=$(mktemp -d --tmpdir forward-port-missing-sources-list-XXXXXX) || \
+            _fatal "Failed to create temporary for package list."
+        _debug "Created temporary directory for package list: $_GET_PACKAGE_LIST_TEMP_DIR"
+    fi
+
+    local package_file="$_GET_PACKAGE_LIST_TEMP_DIR/$future_branch_colloquial-$suite.gz"
+    local unzipped_file="$_GET_PACKAGE_LIST_TEMP_DIR/$future_branch_colloquial-$suite.txt"
+
+    if [[ -f "$unzipped_file" ]]; then
+        _debug "Using cached unzipped package list for '$future_branch_colloquial' in suite '$suite'."
+        _packages=($(cat "$unzipped_file" | tr '\n' ' ')) || \
+            _fatal "Failed to read packages from '$_GET_PACKAGE_LIST_TEMP_DIR/$future_branch_colloquial-$suite.txt'."
+        _debug "Found $(echo "${_packages[@]}" | wc -w) packages in future branch '$future_branch_colloquial' in suite '$suite'."
+        return 0
+    fi
+
+    if [[ ! -f "$package_file" ]]; then
+        _debug "Downloading package list for '$future_branch_colloquial' in suite '$suite'."
+        local package_url="https://archive.ubuntu.com/ubuntu/dists/$future_branch_colloquial/$suite/binary-amd64/Packages.gz"
+        curl -s "$package_url" -o "$package_file" || \
+            _fatal "Failed to download package list from '$package_url'."
+    else
+        _debug "Using cached package file for '$future_branch_colloquial' in suite '$suite'."
+    fi
+
+    _debug "Unzipping package list from '$package_file'."
+    gunzip -c "$package_file" | grep -E '^Package: ' | sed 's/^Package: //g' | sort -u > "$unzipped_file" || \
+        _fatal "Failed to unzip package list from '$package_file'."
     
+    _debug "Reading packages from '$unzipped_file'"
+    _packages=($(cat "$unzipped_file" | tr '\n' ' ')) || \
+        _fatal "Failed to read packages from '$_GET_PACKAGE_LIST_TEMP_DIR/$future_branch_colloquial-$suite.txt'."
+    _debug "Found $(echo "${_packages[@]}" | wc -w) packages in future branch '$future_branch_colloquial' in suite '$suite'."
+}
+
+function _clean_package_list_temp_dir() {
+    if [[ -n "$_GET_PACKAGE_LIST_TEMP_DIR" && -d "$_GET_PACKAGE_LIST_TEMP_DIR" ]]; then
+        rm -rf "${_GET_PACKAGE_LIST_TEMP_DIR:?}" || \
+            _error "Failed to remove temporary directory '$_GET_PACKAGE_LIST_TEMP_DIR'."
+        _GET_PACKAGE_LIST_TEMP_DIR=""
+    fi
+}
+
+function _non_quirk() {
+    local package="$1"; shift; local future_branch="$1"; shift; local future_packages=("$@")
+    if [[ ! " ${future_packages[*]} " =~ " $package " ]]; then
+        _debug "Package '$package' is not present in future packages"
+        # still need to check whether the package is even available in the future packages
+        # for that it's not enough to just look at the slices we have. we need to check
+        # `https://archive.ubuntu.com/ubuntu/dists/` for the future packages
+        # and see if the package is available there.
+
+        local -ra suites=(main restricted universe multiverse)
+
+        for suite in "${suites[@]}"; do
+            local -a packages_in_suite
+            _get_package_list "$future_branch" "$suite" packages_in_suite || \
+                _fatal "Failed to get package list for future branch '$future_branch' in suite '$suite'."
+
+            if [[ ${#packages_in_suite[@]} -eq 0 ]]; then
+                _debug "No packages found in future branch '$future_branch' in suite '$suite'."
+                continue
+            fi
+
+            _debug "Checking if package '$package' is available in future branch '$future_branch' in suite '$suite'."
+            if [[ " ${packages_in_suite[*]} " =~ " $package " ]]; then
+                _debug "Package '$package' is available in future branch '$future_branch' in suite '$suite'."
+                return 1
+            else
+                _debug "Package '$package' is NOT available in future branch '$future_branch' in suite '$suite'."
+            fi
+        done
+    fi
+    return 0
+}
+
+# This is a quirk function for libc6. libc6 is not actually quirky, but
+# we use this as an example of a quirk function / for testing purposes.
+function _libc6_quirk() {
+    local package="$1"; shift; local future_branch="$1"; shift; local future_packages=("$@")
+    # return 1 # always return 1 to indicate that the package is missing (for testing)   
+    [[ ! " ${future_packages[*]} " =~ " $package " ]] && return 1
+    return 0
+}
+
 
 function _mark_this_PR_as_forward_port_missing() {
     # Check if we're running in a GitHub Actions environment

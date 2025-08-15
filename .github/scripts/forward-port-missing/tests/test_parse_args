@@ -6,10 +6,11 @@ function parse_args_helper() {
     # Call parse_args and echo the results
     local check_repo
     local check_prs
+    local log_level
     local -A versions
     local -A packages
     local repo
-    parse_args check_repo check_prs versions packages repo "$@"
+    parse_args check_repo check_prs log_level versions packages repo "$@" || assert false
     # Sort the associative arrays for consistent output
     local versions_str="$(printf '%s\n' "${!versions[@]}" | sort -u | paste -sd ' ' -)"
     local packages_str="$(printf '%s\n' "${!packages[@]}" | sort -u | paste -sd ' ' -)"

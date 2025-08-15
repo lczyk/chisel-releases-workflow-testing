@@ -1,0 +1,34 @@
+#!/bin/bash
+
+source _common.sh
+
+function test_find_greater_versions() {
+    local text="v1.0.0 v2.0.0 v1.5.0 v3.0.0"
+    local version="v1.5.0"
+    local expected="v2.0.0 v3.0.0"
+
+    local result=$(find_greater_versions "$version" "$text")
+    assert_equals "$expected" "$result" "Should find greater versions correctly"
+}
+function test_find_greater_versions_array() {
+    local text=(
+        "v1.0.0"
+        "v2.0.0"
+        "v1.5.0"
+        "v3.0.0"
+    )
+    local version="v1.5.0"
+    local expected="v2.0.0 v3.0.0"
+
+    local result=$(find_greater_versions "$version" "${text[@]}")
+    assert_equals "$expected" "$result" "Should find greater versions correctly"
+}
+
+function test_find_greater_versions_unsorted() {
+    local text="v3.0.0 v1.0.0 v2.0.0 v1.5.0"
+    local version="v1.5.0"
+    local expected="v2.0.0 v3.0.0"
+
+    local result=$(find_greater_versions "$version" "$text")
+    assert_equals "$expected" "$result" "Should find greater versions in unsorted list"
+}
