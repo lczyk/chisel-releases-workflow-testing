@@ -1,3 +1,4 @@
+# spell-checker: words levelname
 import subprocess as sub
 from pathlib import Path
 import re
@@ -6,6 +7,8 @@ import logging
 import tempfile
 import shutil
 from dataclasses import dataclass, replace
+import json
+from typing import no_type_check
 
 
 __version__ = "0.2.0"
@@ -146,14 +149,15 @@ def setup_logging(log_level: str):
     datefmt = "%Y-%m-%dT%H:%M:%S"
     formatter: type[logging.Formatter] = logging.Formatter
     try:
-        import colorlog
+        # Try to use colorlog for colored output
+        import colorlog  # type: ignore
 
         fmt = re.sub(r"%\(levelname\)s", "%(log_color)s%(levelname)s%(reset)s", fmt)
-        formatter = colorlog.ColoredFormatter
+        formatter = colorlog.ColoredFormatter  # type: ignore
     except ImportError:
         pass
 
-    handler.setFormatter(formatter(fmt, datefmt))
+    handler.setFormatter(formatter(fmt, datefmt))  # type: ignore
     _logger.addHandler(handler)
     _logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
@@ -465,14 +469,13 @@ def pull_prs(
     return slices_by_pr
 
 
-import urllib
-import urllib.error
-import urllib.request
-
-
 # geturl from https://github.com/lczyk/geturl 0.4.4
 def geturl(url: str) -> tuple[int, bytes]:
     """Make a GET request to a URL and return the response and status code."""
+
+    import urllib
+    import urllib.error
+    import urllib.request
 
     try:
         with urllib.request.urlopen(url) as r:
@@ -489,9 +492,6 @@ def geturl(url: str) -> tuple[int, bytes]:
     return code, res
 
 
-import json
-
-
 @dataclass(frozen=True, unsafe_hash=True)
 class PR:
     """Data class to represent a Pull Request."""
@@ -506,6 +506,7 @@ class PR:
     base_ref: str
     remote: str
 
+    @no_type_check
     @classmethod
     def from_payload(cls, data: dict) -> "PR":
         remote = data["head"]["repo"]["html_url"]
@@ -575,16 +576,16 @@ def get_all_prs(remote_url: str, per_page: int = 100) -> list[PR]:
             )
         parsed_result = json.loads(result.decode("utf-8"))
         assert isinstance(parsed_result, list), "Expected response to be a list of PRs."
-        results.extend(parsed_result)
+        results.extend(parsed_result)  # type: ignore
 
         # Check if there are more pages
-        if len(parsed_result) < page:
+        if len(parsed_result) < page:  # type: ignore
             break
 
         # Update the API URL for the next page
         page += 1
 
-    return [PR.from_payload(pr) for pr in results]
+    return [PR.from_payload(pr) for pr in results]  # type: ignore
 
 
 def setup_local_repo(args: Args) -> Work:
@@ -621,7 +622,7 @@ def setup_local_repo(args: Args) -> Work:
     if args.check_prs:
         logging.info("Checking PRs in the local repository")
         remote_url = git(
-            ["config", "--get", "remote.origin.url"],
+            ("config", "--get", "remote.origin.url"),
             cwd=args.repo,
         ).removesuffix(".git")
         if not remote_url:
@@ -636,7 +637,7 @@ def setup_local_repo(args: Args) -> Work:
 
         prs_repo_dir = args.temp_dir / "repo"
         git(
-            ["clone", "--quiet", remote_url, str(prs_repo_dir)],
+            ("clone", "--quiet", remote_url, str(prs_repo_dir)),
             cwd=args.temp_dir.parent,
         )
 
@@ -710,6 +711,7 @@ def main() -> int:
         )
 
     raise NotImplementedError("end of main")
+
     repo_root = Path(__file__).parent
     if not repo_root.is_dir():
         raise FileNotFoundError(
