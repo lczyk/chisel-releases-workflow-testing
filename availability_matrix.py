@@ -11,7 +11,7 @@ import json
 from typing import no_type_check
 import os
 
-__version__ = "0.2.1"
+__version__ = "0.3.1"
 
 
 ## CLI #########################################################################
@@ -23,8 +23,10 @@ class Args:
     log_level: str = "info"
     check_repo: bool = True
     check_prs: bool = False
+    check_branches: bool = False
     version_filter: str = "*"
     package_filter: str = "*"
+    branch_filter: str = "*"
     pr_filter: str = "*"
     temp_dir: Path | None = None
 
@@ -73,8 +75,18 @@ def parse_args() -> Args:
         "based on the url of the origin remote. Defaults to false.",
     )
     parser.add_argument(
-        "-v",
+        "--check-branches",
+        type=lambda x: x.lower() in ("true", "t", "1"),
+        default=False,
+        help="If true, treat any branches in the repository as if they were "
+        " pull requests, and check them for forward porting. If --check-prs is true, "
+        "they will be cross-checked with the branches (and vice versa). "
+        "This is useful for testing local branches that are not yet pushed to the "
+        "remote repository. Defaults to false.",
+    )
+    parser.add_argument(
         "--version-filter",
+        "--vf",
         type=str,
         default="*",
         help="Specify the Ubuntu versions to check for forward porting. "
@@ -82,8 +94,8 @@ def parse_args() -> Args:
         "If not specified, it will default to all the versions found in the repository.",
     )
     parser.add_argument(
-        "-p",
         "--package-filter",
+        "--pf",
         type=str,
         default="*",
         help="Specify the packages to check for forward porting. "
@@ -91,8 +103,8 @@ def parse_args() -> Args:
         "If not specified, it will default to all the packages found in every branch.",
     )
     parser.add_argument(
-        "-r",
-        "--pr-filter",
+        "--pull-request-filter",
+        "--prf",
         type=str,
         default="*",
         help="Specify the PRs to check for forward porting. "
@@ -102,14 +114,15 @@ def parse_args() -> Args:
         "2) have a base branch starting with 'ubuntu-', and 3) match the "
         "version filter will be considered.",
     )
-
     parser.add_argument(
-        "--temp-dir",
+        "--branch-filter",
+        "--bf",
         type=str,
-        default="",
-        help="Temporary directory to use for cloning the repository. "
-        "This is mainly used if the <repo> is a remote URL. "
-        "If not specified, it will use the current working directory.",
+        default="*",
+        help="Specify the branches to check for forward porting. "
+        "This should be a comma-separated list of branch names, e.g., 'feature-foo,bugfix-bar'. "
+        "If not specified, it will default to all the local branches found in the repository. "
+        "This is only used if --check-branches is true.",
     )
 
     parsed = parser.parse_args()
@@ -118,10 +131,11 @@ def parse_args() -> Args:
         log_level=parsed.log_level,
         check_repo=parsed.check_repo,
         check_prs=parsed.check_prs,
+        check_branches=parsed.check_branches,
         version_filter=parsed.version_filter,
         package_filter=parsed.package_filter,
-        pr_filter=parsed.pr_filter,
-        temp_dir=parsed.temp_dir if parsed.temp_dir else None,
+        pr_filter=parsed.pull_request_filter,
+        branch_filter=parsed.branch_filter,
     )
 
 
@@ -131,10 +145,14 @@ GIT_PATH = os.environ.get("GIT_PATH", "git")
 def git(command: tuple[str, ...], cwd: str | Path | None = None) -> str:
     """Run a git command and return the output."""
     try:
-        output = (
-            sub.check_output([GIT_PATH, *command], cwd=str(cwd)).decode("utf-8").strip()
+        return (
+            sub.check_output(
+                [GIT_PATH, *command],
+                cwd=str(cwd),
+            )
+            .decode("utf-8")
+            .strip()
         )
-        return output
     except sub.CalledProcessError as e:
         logging.error("Git command failed: %s", e)
         raise RuntimeError(f"Git command failed: {e}") from e
@@ -162,23 +180,17 @@ def setup_logging(log_level: str):
     _logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
 
 
-def setup_temp_dir(temp_dir: Path | None = None) -> Path:
-    if temp_dir:
-        temp_dir = Path(temp_dir)
-        if not temp_dir.exists():
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            logging.debug("Created clone directory: %s", temp_dir)
+def setup_temp_dir() -> Path:
+    name = tempfile.mktemp(prefix="availability_matrix_")
+    temp_dir = Path(name)
+    if not temp_dir.exists():
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        logging.debug("Created default clone directory: %s", temp_dir)
     else:
-        name = tempfile.mktemp(prefix="availability_matrix_")
-        temp_dir = Path(name)
-        if not temp_dir.exists():
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            logging.debug("Created default clone directory: %s", temp_dir)
-        else:
-            logging.debug("Using existing clone directory: %s", temp_dir)
-            shutil.rmtree(temp_dir)
-            temp_dir.mkdir(parents=True, exist_ok=True)
-            logging.debug("Cleaned up existing clone directory: %s", temp_dir)
+        logging.debug("Using existing clone directory: %s", temp_dir)
+        shutil.rmtree(temp_dir)
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        logging.debug("Cleaned up existing clone directory: %s", temp_dir)
 
     return temp_dir
 
@@ -268,9 +280,46 @@ def pull_remote_repo(args: Args) -> Work:
         # same repo as the base repo
         prs_repo_dir = Path(args.repo)
 
+    slices_by_branches: dict["Branch", set[str]] = {}
+    branches_repo_dir: Path | None = None
+    if args.check_branches:
+        non_ubuntu_branches = [b for b in branches if not b.startswith("ubuntu-")]
+        logging.debug(
+            "Found %d non-ubuntu branches: %s",
+            len(non_ubuntu_branches),
+            ", ".join(non_ubuntu_branches),
+        )
+
+        # filter branches based on the branch filter
+        if args.branch_filter != "*":
+            regex = re.compile(rf"^({'|'.join(args.branch_filter.split(','))})")
+            logging.debug("Filtering branches with regex: %s", regex.pattern)
+            branches = [b for b in branches if regex.match(b)]
+
+        # Pull the non-ubuntu branches if we are checking branches
+        for branch in non_ubuntu_branches:
+            logging.info("Pulling branch: %s", branch)
+            git(
+                ("checkout", "--quiet", "--track", f"origin/{branch}", "-b", branch),
+                cwd=args.repo,
+            )
+            git(
+                ("pull", "--quiet", "origin", branch),
+                cwd=args.repo,
+            )
+
+        # Now we have the non-ubuntu branches pulled, we can get the slices for each branch
+        for branch in non_ubuntu_branches:
+            slices = get_slices(args.repo, branch)
+            slices_by_branches[branch] = slices
+            logging.debug("Found %d slices in branch '%s'", len(slices), branch)
+
+        # same repo as the base repo
+        branches_repo_dir = Path(args.repo)
+
     # Filter branches based on the PRs we have pulled
     if args.check_prs and not args.check_repo:
-        pr_bases = set(pr.base_ref for pr in slices_by_pr.keys())
+        pr_bases = set(pr.base.ref for pr in slices_by_pr.keys())
         if len(pr_bases) < len(branches):
             logging.info(
                 "Filtering branches to only those that are base branches of PRs: %s",
@@ -278,23 +327,43 @@ def pull_remote_repo(args: Args) -> Work:
             )
             branches = [b for b in branches if b in pr_bases]
 
-    # Pull all the matching branches
-    for branch in branches:
-        logging.info("Pulling branch: %s", branch)
-        git(
-            ("checkout", "--quiet", "--track", f"origin/{branch}", "-b", branch),
-            cwd=args.repo,
-        )
-        git(
-            ("pull", "--quiet", "origin", branch),
-            cwd=args.repo,
-        )
+    # Filter branches based on the branches we have pulled
+    if args.check_branches and not args.check_repo:
+        branch_bases = set(slices_by_branches.keys())
+        if len(branch_bases) < len(branches):
+            logging.info(
+                "Filtering branches to only those that are branches we have pulled: %s",
+                ", ".join(branch_bases),
+            )
+            branches = [b for b in branches if b in branch_bases]
 
+    # # Pull all the matching branches
+    # for branch in branches:
+    #     logging.info("Pulling branch: %s", branch)
+    #     git(
+    #         ("checkout", "--quiet", "--track", f"origin/{branch}", "-b", branch),
+    #         cwd=args.repo,
+    #     )
+    #     git(
+    #         ("pull", "--quiet", "origin", branch),
+    #         cwd=args.repo,
+    #     )
+
+    # slices_by_branch: dict[str, set[str]] = {}
+    # for branch in branches:
+    #     slices = get_slices(args.repo, branch)
+    #     slices_by_branch[branch] = slices
+    #     logging.debug("Found %d slices in branch '%s'", len(slices), branch)
     slices_by_branch: dict[str, set[str]] = {}
     for branch in branches:
-        slices = get_slices(args.repo, branch)
-        slices_by_branch[branch] = slices
-        logging.debug("Found %d slices in branch '%s'", len(slices), branch)
+        with CheckoutTemporaryBranch(
+            "origin",
+            branch,
+            args.repo,
+        ) as branch_name:
+            slices = get_slices(args.repo, branch_name)
+            slices_by_branch[branch] = slices
+            logging.debug("Found %d slices in branch '%s'", len(slices), branch)
 
     return Work(
         slices_by_branch=slices_by_branch,
@@ -303,6 +372,108 @@ def pull_remote_repo(args: Args) -> Work:
         prs_repo_dir=prs_repo_dir,
     )
 
+from contextlib import contextmanager
+import uuid
+
+
+def remote_url_to_human_readable_infix(remote: str) -> str:
+    """Convert a remote URL to a human-readable infix."""
+    out = ""
+    if "github.com" in remote:
+        # For GitHub URLs, we can use the owner/repo format
+        parts = remote.split("/")
+        if len(parts) >= 2:
+            out = f"{parts[-2]}_{parts[-1]}"
+    else:
+        # Not a github URL! unsure whether this is supported yet, but let's
+        # not fall over and try ot make something out of it
+        out = remote.replace("https://", "").replace("http://", "")
+
+    # final cleanup
+    out = re.sub(r"[^a-zA-Z0-9_.-]", "_", out)
+    out = out.strip("_")
+    if not out:
+        out = "xxx"
+    return out
+
+
+@contextmanager
+def AddTemporaryRemote(
+    remote_url: str,
+    repo: str,
+    remote_name: str | None = None,
+):
+    """Context manager to add a temporary remote to the repository."""
+    if remote_name is None:
+        remote_name = "_{name_prefix}_{human_readable}_{uuid}".format(
+            name_prefix="temp-remote",
+            human_readable=remote_url_to_human_readable_infix(remote_url),
+            uuid=uuid.uuid4().hex[:8],
+        )
+
+    try:
+        git(("remote", "add", remote_name, remote_url), cwd=repo)
+        logging.debug(
+            "Added temporary remote '%s' under the name '%s'",
+            remote_url,
+            remote_name,
+        )
+        yield remote_name
+    finally:
+        git(("remote", "remove", remote_name), cwd=repo)
+        logging.debug("Removed temporary remote '%s'", remote_name)
+
+
+def remote_branch_name_to_human_readable(remote_branch_name: str) -> str:
+    """Convert a remote branch name to a human-readable format."""
+    return re.sub(r"[^a-zA-Z0-9_.-]", "_", remote_branch_name).strip("_")
+
+
+@contextmanager
+def CheckoutTemporaryBranch(
+    remote_name: str,
+    remote_branch_name: str,
+    repo: str,
+    local_branch_name: str | None = None,
+):
+    """Context manager to fetch a temporary branch from a remote."""
+    if local_branch_name is None:
+        local_branch_name = "_{name_prefix}_{human_readable}_{uuid}".format(
+            name_prefix="temp-branch",
+            human_readable=remote_branch_name_to_human_readable(remote_branch_name),
+            uuid=uuid.uuid4().hex[:8],
+        )
+
+    try:
+        git(("fetch", "--quiet", remote_name, remote_branch_name), cwd=repo)
+        logging.debug(
+            "Fetched branch '%s' from remote '%s'", remote_branch_name, remote_name
+        )
+        git(
+            (
+                "checkout",
+                "--quiet",
+                "--track",
+                f"{remote_name}/{remote_branch_name}",
+                "-b",
+                local_branch_name,
+            ),
+            cwd=repo,
+        )
+        logging.debug(
+            "Checked out branch '%s' from remote '%s' under the name '%s'",
+            remote_branch_name,
+            remote_name,
+            local_branch_name,
+        )
+        yield local_branch_name
+    finally:
+        # Remove the temporary branch
+        git(("checkout", "main"), cwd=repo)  # Switch back to main branch
+        git(
+            ("branch", "-D", local_branch_name), cwd=repo
+        )  # Delete the temporary branch
+        logging.debug("Deleted temporary branch '%s'", local_branch_name)
 
 def pull_prs(
     args: Args,
@@ -355,33 +526,33 @@ def pull_prs(
     filtered_prs: list[PR] = []
     for pr in prs:
         # Check whether the base_ref is a valid branch in the repo
-        if not pr.base_ref.startswith("ubuntu-"):
-            if pr.base_ref != "main":
+        if not pr.base.ref.startswith("ubuntu-"):
+            if pr.base.ref != "main":
                 logging.warning(
                     "Weird base ref '%s' in PR '%s'. Skipping it.",
-                    pr.base_ref,
+                    pr.base.ref,
                     pr.url,
                 )
                 continue
 
         # Check whether the base_ref is one we care about
         # We might have filtered these earlier
-        if version_filter_regex and not version_filter_regex.match(pr.base_ref):
+        if version_filter_regex and not version_filter_regex.match(pr.base.ref):
             logging.debug(
                 "Skipping PR #%d because base ref '%s' does not match version filter.",
                 pr.number,
-                pr.base_ref,
+                pr.base.ref,
             )
             continue
 
         if (
             additional_version_filter_regex
-            and not additional_version_filter_regex.match(pr.base_ref)
+            and not additional_version_filter_regex.match(pr.base.ref)
         ):
             logging.debug(
                 "Skipping PR #%d because base ref '%s' does not match additional version filter.",
                 pr.number,
-                pr.base_ref,
+                pr.base.ref,
             )
             continue
 
@@ -400,65 +571,38 @@ def pull_prs(
         filtered_prs.append(pr)
 
     # Group PRs by remote
-    prs_bu_remote: dict[str, set[PR]] = {}
+    prs_by_remote_url: dict[str, set[PR]] = {}
 
     for pr in filtered_prs:
-        prs_bu_remote.setdefault(pr.remote, set()).add(pr)
+        prs_by_remote_url.setdefault(pr.head.repo.url, set()).add(pr)
 
         logging.debug(
             "Found PR by %s from '%s' at '%s' to '%s'",
             pr.user,
-            pr.head_ref,
-            pr.remote,
-            pr.base_ref,
+            pr.head.ref,
+            pr.head.repo.url,
+            pr.base.ref,
         )
 
-    for remote, prs in prs_bu_remote.items():
-        remote_names = set(pr.remote_name() for pr in prs)
-        assert len(remote_names) == 1, (
-            f"Expected all PRs from the same remote to have the same remote name, "
-            f"but found {len(remote_names)} different names: {remote_names}"
-        )
-        remote_name = next(iter(remote_names))
-
-        logging.info("Adding remote '%s' with remote name '%s'", remote, remote_name)
-
-        git(
-            ("remote", "add", remote_name, remote),
-            cwd=args.repo,
-        )
-
-        for pr in prs:
-            logging.debug("Fetching '%s/%s'", pr.head_repo_full_name, pr.head_ref)
-            git(
-                ("fetch", "--quiet", remote_name, pr.head_ref),
-                cwd=args.repo,
-            )
-            git(
-                (
-                    "checkout",
-                    "--quiet",
-                    "--track",
-                    f"{remote_name}/{pr.head_ref}",
-                    "-b",
-                    pr.branch_name(),
-                ),
-                cwd=args.repo,
-            )
-
-    # Now we have all the PRs fetched, we can get the slices for each PR
     slices_by_pr: dict[PR, set[str]] = {}
-    for pr in filtered_prs:
-        # Get the slices for this PR
-        slices = get_slices(args.repo, pr.branch_name())
-        slices_by_pr[pr] = slices
-        logging.debug(
-            "Found %d slices in PR '%s' from '%s' to '%s'",
-            len(slices),
-            pr.url,
-            pr.head_ref,
-            pr.base_ref,
-        )
+
+    for remote, prs in prs_by_remote_url.items():
+        with AddTemporaryRemote(remote, args.repo) as remote_name:
+            for pr in prs:
+                with CheckoutTemporaryBranch(
+                    remote_name,
+                    pr.head.ref,
+                    args.repo,
+                ) as branch_name:
+                    slices = get_slices(args.repo, branch_name)
+                    slices_by_pr[pr] = slices
+                    logging.debug(
+                        "Found %d slices in PR '%s' from '%s' to '%s'",
+                        len(slices),
+                        pr.url,
+                        pr.head.ref,
+                        pr.base.ref,
+                    )
 
     logging.info(
         "Found %d open PRs in the repository '%s'.",
@@ -492,69 +636,111 @@ def geturl(url: str) -> tuple[int, bytes]:
     return code, res
 
 
+# from typing import Protocol, TYPE_CHECKING
+
+# class Head(Protocol):
+#     """Protocol for a head branch
+# ...
+
+
+# @dataclass
+# class Branch: ...
+
+
+@dataclass(frozen=True, unsafe_hash=True)
+class Repo:
+    """Data class to represent a Git repository."""
+
+    name: str  # Name of the repository
+    url: str  # URL of the repository
+    owner: str  # Owner of the repository
+
+    @no_type_check
+    @classmethod
+    def from_payload(cls, data: dict) -> "Repo":
+        return cls(
+            name=data["name"],
+            url=data["html_url"],
+            owner=data["owner"]["login"],
+        )
+
+
+@dataclass(frozen=True, unsafe_hash=True)
+class Commit:
+    """Data class to represent a Git commit."""
+
+    commit: str  # SHA of the commit
+    ref: str
+    repo: Repo
+
+    @no_type_check
+    @classmethod
+    def from_payload(cls, data: dict) -> "Commit":
+        return cls(
+            commit=data["sha"],
+            ref=data["ref"],
+            repo=Repo.from_payload(data["repo"]),
+        )
+
+
 @dataclass(frozen=True, unsafe_hash=True)
 class PR:
     """Data class to represent a Pull Request."""
 
-    url: str
-    number: int
-    title: str
-    user: str
-    state: str
-    head_ref: str
-    head_repo: str
-    base_ref: str
-    remote: str
+    url: str  # URL of the PR, e.g. http
+    number: int  # number of the PR, e.g #601
+    title: str  # title of the PR
+
+    user: str  # user who created the PR (usually, but not necessarily, the author)
+
+    head: Commit
+    base: Commit
+
+    state: str  # open, closed, merged, draft etc
 
     @no_type_check
     @classmethod
     def from_payload(cls, data: dict) -> "PR":
-        remote = data["head"]["repo"]["html_url"]
-        user = data["head"]["repo"]["owner"]["login"]
-        head_repo = data["head"]["repo"]["name"]
-        assert user in remote, (
-            f"Expected remote '{remote}' to contain user '{user}', but it does not!"
-        )
+        head = Commit.from_payload(data["head"])
+        base = Commit.from_payload(data["base"])
 
         return cls(
             url=data["html_url"],
             number=data["number"],
             title=data["title"],
-            user=user,
+            user=data["user"]["login"],
             state=data["state"],
-            head_ref=data["head"]["ref"],
-            head_repo=head_repo,
-            base_ref=data["base"]["ref"],
-            remote=remote,
+            head=head,
+            base=base,
         )
 
-    @property
-    def head_repo_full_name(self) -> str:
-        """Return the full name of the head repository."""
-        return f"{self.user}/{self.head_repo}"
+    # @property
+    # def head_repo_full_name(self) -> str:
+    #     """Return the full name of the head repository."""
+    #     return f"{self.user}/{self.head_repo}"
 
-    def remote_name(self, limit: int = 100) -> str:
-        """Create a valid remote name from the remote URL."""
-        remote_name = self.remote.replace("https://", "").replace("http://", "")
-        remote_name = remote_name.replace("github.com", "")
-        remote_name = remote_name.replace("/", "_").replace(":", "_")
-        remote_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", remote_name)
-        if limit > 0 and len(remote_name) > limit:
-            remote_name = remote_name[:limit]
-        if not remote_name:
-            raise ValueError("Remote name cannot be empty.")
-        remote_name = remote_name.strip("_")
-        remote_name = remote_name.strip("-")
-        if not remote_name:
-            raise ValueError("Remote name cannot be empty after stripping.")
-        return remote_name
+    # def remote_name(self, limit: int = 100) -> str:
+    #     """Create a valid remote name from the remote URL."""
+    #     remote_name = self.remote.replace("https://", "").replace("http://", "")
+    #     remote_name = remote_name.replace("github.com", "")
+    #     remote_name = remote_name.replace("/", "_").replace(":", "_")
+    #     remote_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", remote_name)
+    #     if limit > 0 and len(remote_name) > limit:
+    #         remote_name = remote_name[:limit]
+    #     if not remote_name:
+    #         raise ValueError("Remote name cannot be empty.")
+    #     remote_name = remote_name.strip("_")
+    #     remote_name = remote_name.strip("-")
+    #     if not remote_name:
+    #         raise ValueError("Remote name cannot be empty after stripping.")
+    #     return remote_name
 
-    def branch_name(self) -> str:
-        """Create a branch name for the PR."""
-        # Use the remote name to avoid conflicts with local branches
-        remote_name = self.remote_name()
-        # Use the PR number and base ref to create a unique branch name
-        return f"{remote_name}/PR-{self.number}-{self.base_ref}"
+    # def branch_name(self) -> str:
+    #     """Create a branch name for the PR."""
+    #     # Use the remote name to avoid conflicts with local branches
+    #     remote_name = self.remote_name()
+    #     # Use the PR number and base ref to create a unique branch name
+    #     return f"{remote_name}/PR-{self.number}-{self.base_ref}"
 
 
 def get_all_prs(remote_url: str, per_page: int = 100) -> list[PR]:
@@ -677,12 +863,12 @@ def main() -> int:
     args = parse_args()
     setup_logging(args.log_level)
 
-    assert args.check_repo or args.check_prs, (
-        "You must specify at least one of --check-repo or --check-prs."
+    assert args.check_repo or args.check_prs or args.check_branches, (
+        "You must specify at least one of --check-repo, --check-prs or --check-local-branches."
     )
 
     # Make the temp directory if it doesn't exist
-    args.temp_dir = setup_temp_dir(args.temp_dir)
+    args.temp_dir = setup_temp_dir()
 
     logging.debug("Parsed arguments: %s", args)
 
@@ -706,8 +892,8 @@ def main() -> int:
         logging.info(
             "Found %d slices in PR from '%s' to '%s'",
             len(slices),
-            f"{pr.head_repo_full_name}/{pr.head_ref}",
-            pr.base_ref,
+            f"{pr.head.repo.owner}/{pr.head.repo.name}/{pr.head.ref}",
+            pr.base.ref,
         )
 
     raise NotImplementedError("end of main")
