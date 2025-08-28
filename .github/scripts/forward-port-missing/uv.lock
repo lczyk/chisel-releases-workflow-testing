@@ -37,7 +37,7 @@ wheels = [
 
 [[package]]
 name = "forward-port-missing"
-version = "0.4.1"
+version = "0.0.2"
 source = { virtual = "." }
 
 [package.dev-dependencies]

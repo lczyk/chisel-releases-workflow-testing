@@ -1,7 +1,7 @@
 [project]
 name = "forward-port-missing"
 description = "Add your description here"
-version = "0.0.1"
+version = "0.0.2"
 authors = [{ name = "Marcin Konowalczyk", email = "marcin.konowalczyk@canonical.com" }]
 readme = "README.md"
 requires-python = ">=3.9"
@@ -51,11 +51,11 @@ exclude = [
 line-length = 120
 lint.ignore = [
     "PLC0415", # imports should be at the top-level of the file
+    "PLR2004", # magic values
     # "SIM105",
     # "PLR0911", # too many return statements
     # "PLR0912", # too many branches
     # "PLR0913", # too many arguments in function definition
-    # "PLR2004", # magic values
     #
 ]
 lint.select = [
