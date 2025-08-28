@@ -10,8 +10,11 @@ from dataclasses import dataclass, replace
 import json
 from typing import no_type_check
 import os
+from contextlib import contextmanager
+import uuid
 
-__version__ = "0.3.1"
+
+__version__ = "0.3.2"
 
 
 ## CLI #########################################################################
@@ -141,7 +144,7 @@ def parse_args() -> Args:
 
 GIT_PATH = os.environ.get("GIT_PATH", "git")
 
-
+class GitError(Exception): ...
 def git(command: tuple[str, ...], cwd: str | Path | None = None) -> str:
     """Run a git command and return the output."""
     try:
@@ -155,7 +158,7 @@ def git(command: tuple[str, ...], cwd: str | Path | None = None) -> str:
         )
     except sub.CalledProcessError as e:
         logging.error("Git command failed: %s", e)
-        raise RuntimeError(f"Git command failed: {e}") from e
+        raise GitError(str(e)) from None
 
 
 def setup_logging(log_level: str):
@@ -372,9 +375,6 @@ def pull_remote_repo(args: Args) -> Work:
         prs_repo_dir=prs_repo_dir,
     )
 
-from contextlib import contextmanager
-import uuid
-
 
 def remote_url_to_human_readable_infix(remote: str) -> str:
     """Convert a remote URL to a human-readable infix."""
@@ -411,6 +411,7 @@ def AddTemporaryRemote(
             uuid=uuid.uuid4().hex[:8],
         )
 
+    caught_git_error = None
     try:
         git(("remote", "add", remote_name, remote_url), cwd=repo)
         logging.debug(
@@ -419,9 +420,16 @@ def AddTemporaryRemote(
             remote_name,
         )
         yield remote_name
+    except GitError as ge:
+        # catch and re-raise any git errors
+        caught_git_error = ge
+        raise ge
     finally:
-        git(("remote", "remove", remote_name), cwd=repo)
-        logging.debug("Removed temporary remote '%s'", remote_name)
+        if caught_git_error:
+            logging.warning("Caught git error. Will not remove temp directory")
+        else:
+            git(("remote", "remove", remote_name), cwd=repo)
+            logging.debug("Removed temporary remote '%s'", remote_name)
 
 
 def remote_branch_name_to_human_readable(remote_branch_name: str) -> str:
@@ -444,6 +452,7 @@ def CheckoutTemporaryBranch(
             uuid=uuid.uuid4().hex[:8],
         )
 
+    caught_git_error: Exception | None = None
     try:
         git(("fetch", "--quiet", remote_name, remote_branch_name), cwd=repo)
         logging.debug(
@@ -467,13 +476,21 @@ def CheckoutTemporaryBranch(
             local_branch_name,
         )
         yield local_branch_name
+    except GitError as ge:
+        # catch and re-raise any git errors
+        caught_git_error = ge
+        raise ge
     finally:
-        # Remove the temporary branch
-        git(("checkout", "main"), cwd=repo)  # Switch back to main branch
-        git(
-            ("branch", "-D", local_branch_name), cwd=repo
-        )  # Delete the temporary branch
-        logging.debug("Deleted temporary branch '%s'", local_branch_name)
+        if caught_git_error:
+            logging.warning("Caught git error. Will not remove temp branch")
+        else:
+            # Remove the temporary branch
+            git(("checkout", "main"), cwd=repo)  # Switch back to main branch
+            git(
+                ("branch", "-D", local_branch_name), cwd=repo
+            )  # Delete the temporary branch
+            logging.debug("Deleted temporary branch '%s'", local_branch_name)
+
 
 def pull_prs(
     args: Args,
@@ -494,7 +511,7 @@ def pull_prs(
         "The repository is not hosted on GitHub, so PR checking is not supported."
     )
 
-    # Fetch all PRs
+    # Get all PRs for a remote repository
     prs = get_all_prs(remote_url)
 
     pr_filter_regex: re.Pattern[str] | None = None
@@ -636,17 +653,6 @@ def geturl(url: str) -> tuple[int, bytes]:
     return code, res
 
 
-# from typing import Protocol, TYPE_CHECKING
-
-# class Head(Protocol):
-#     """Protocol for a head branch
-# ...
-
-
-# @dataclass
-# class Branch: ...
-
-
 @dataclass(frozen=True, unsafe_hash=True)
 class Repo:
     """Data class to represent a Git repository."""
@@ -713,34 +719,6 @@ class PR:
             head=head,
             base=base,
         )
-
-    # @property
-    # def head_repo_full_name(self) -> str:
-    #     """Return the full name of the head repository."""
-    #     return f"{self.user}/{self.head_repo}"
-
-    # def remote_name(self, limit: int = 100) -> str:
-    #     """Create a valid remote name from the remote URL."""
-    #     remote_name = self.remote.replace("https://", "").replace("http://", "")
-    #     remote_name = remote_name.replace("github.com", "")
-    #     remote_name = remote_name.replace("/", "_").replace(":", "_")
-    #     remote_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", remote_name)
-    #     if limit > 0 and len(remote_name) > limit:
-    #         remote_name = remote_name[:limit]
-    #     if not remote_name:
-    #         raise ValueError("Remote name cannot be empty.")
-    #     remote_name = remote_name.strip("_")
-    #     remote_name = remote_name.strip("-")
-    #     if not remote_name:
-    #         raise ValueError("Remote name cannot be empty after stripping.")
-    #     return remote_name
-
-    # def branch_name(self) -> str:
-    #     """Create a branch name for the PR."""
-    #     # Use the remote name to avoid conflicts with local branches
-    #     remote_name = self.remote_name()
-    #     # Use the PR number and base ref to create a unique branch name
-    #     return f"{remote_name}/PR-{self.number}-{self.base_ref}"
 
 
 def get_all_prs(remote_url: str, per_page: int = 100) -> list[PR]:

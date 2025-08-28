@@ -516,11 +516,67 @@ function main() {
     fi
 
     if [[ "$check_prs" == true ]]; then
-        _not_implemented "Checking PRs is not implemented yet."
+        _debug "Checking PRs in the repository..."
+        local can_check=1
+        if [[ -z "$remote" ]]; then
+            _warn "No remote URL found for the repository. Cannot check PRs."
+            can_check=0
+        fi
+
+        if [[ "$can_check" -eq 1 ]] && [[ ! "$remote" =~ ^https?://github\.com/ ]]; then
+            _warn "Remote URL '$remote' is not a GitHub repository. Cannot check PRs."
+            can_check=0
+        fi
+
+        if [[ "$can_check" -eq 1 ]]; then
+            _info "Checking PRs in GitHub repository: $remote"
+            # Call the GitHub backend function to check PRs
+            _gh_get_prs "$remote" || \
+                _fatal "Failed to check PRs in the repository '$remote'."
+        fi
     fi
 
     exit "$_exit_code"
 }
+
+## GITHUB BACKEND ######################################################
+# functions for interacting with GitHub API
+
+GH_BACKEND="curl" # or "gh" for GitHub CLI
+_gh_get_prs() {
+    [[ $# -ne 1 ]] && _fatal "_gh_get_prs expects exactly one argument, got $#."
+    local remote="$1"
+
+    if [[ "$GH_BACKEND" == "gh" ]]; then
+        _debug "Using GitHub CLI to get PRs from '$remote'."
+        command -v gh >/dev/null 2>&1 || _fatal "GitHub CLI (gh) is not installed. Please install it to use this feature."
+        _not_implemented "Using GitHub CLI to get PRs is not implemented yet."
+    elif [[ "$GH_BACKEND" == "curl" ]]; then
+        _debug "Using curl to get PRs from '$remote'."
+        command -v curl >/dev/null 2>&1 || _fatal "curl is not installed. Please install it to use this feature."
+        command -v jq >/dev/null 2>&1 || _fatal "jq is not installed. Please install it to use this feature."
+        # URL looks kindof like this: https://api.github.com/repos/canonical/chisel-releases/pulls?state=open&per_page=100
+        local api_url=$(
+            echo "$remote" |
+            sed 's/github\.com/api.github.com\/repos/;s/\/$//;s/$/\/pulls?state=open\&per_page=100/'
+        )
+        _debug "Fetching PRs from GitHub API: $api_url"
+        local result=$(curl -s "$api_url") || _fatal "Failed to fetch PRs from '$remote'."
+        local N_results=$(echo "$result" | jq '. | length') || _fatal "Failed to parse PRs from '$remote'."
+        # keep fetching until we get all results
+        while [[ "$N_results" -eq 100 ]]; do
+            _debug "Fetching more PRs from GitHub API: $api_url&page=$((N_results / 100 + 1))"
+            local result_extra=$(curl -s "$api_url&page=$((N_results / 100 + 1))") || _fatal "Failed to fetch more PRs from '$remote'."
+            result=$(echo "$result" "$result_extra" | jq -s 'add')
+            N_results=$(echo "$result" | jq '. | length')
+        done
+        _debug "Found $N_results open PRs in the repository '$remote'."
+    else
+        _fatal "Unknown GitHub backend: $GH_BACKEND. Supported backends are 'gh' and 'curl'."
+    fi
+}
+
+##
 
 # Filter branches based on the versions and packages specified
 function _filter_branches() {
