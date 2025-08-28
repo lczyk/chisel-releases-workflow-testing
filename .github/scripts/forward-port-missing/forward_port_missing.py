@@ -10,13 +10,16 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from html.parser import HTMLParser
 
-__version__ = "0.0.2"
+__version__ = "0.0.4"
 __author__ = "Marcin Konowalczyk"
 
 __changelog__ = [
+    ("0.0.4", "--jobs for parallel slice fetching", "@lczyk"),
+    ("0.0.3", "get_slices_in_pr implemented", "@lczyk"),
     ("0.0.2", "currently_supported_ubuntu_releases implemented", "@lczyk"),
     ("0.0.1", "initial testing", "@lczyk"),
     ("0.0.0", "boilerplate", "@lczyk"),
@@ -24,7 +27,7 @@ __changelog__ = [
 
 ## CONSTANTS ###################################################################
 
-# spell-checker: ignore dists utopic yakkety eoan DEVEL
+# spell-checker: ignore dists utopic yakkety eoan
 VERSION_TO_CODENAME = {
     "14.04": "trusty",
     "14.10": "utopic",
@@ -51,8 +54,6 @@ VERSION_TO_CODENAME = {
     "25.04": "plucky",
     "25.10": "questing",
 }
-
-DEVEL = ("25.10", "questing")
 
 CODENAME_TO_VERSION = {v: k for k, v in VERSION_TO_CODENAME.items()}
 
@@ -105,6 +106,35 @@ def geturl(
     return code, res
 
 
+if os.environ.get("USE_MEMORY", "0") in ("1", "true", "True", "TRUE"):
+    # we don't own the apis we call so, during development, its only polite to cache
+    from joblib import Memory
+
+    memory = Memory(".cache-geturl", verbose=0)
+    geturl = memory.cache(geturl)  # type: ignore
+
+
+class RateLimit(Exception): ...
+
+
+def handle_code(code: int, url: str) -> None:
+    if code == 200:
+        return
+    if code == 404:
+        raise Exception(f"Resource not found at '{url}'.")
+    if code == 403:
+        if "github.com" in url:
+            raise RateLimit("Rate limited by GitHub API. Try again later.")
+        else:
+            raise Exception(f"Access forbidden to '{url}'.")
+    if code == 401:
+        if "github.com" in url:
+            raise Exception(f"Unauthorized access to '{url}'. Maybe bad creds? Check GITHUB_TOKEN.")
+        else:
+            raise Exception(f"Unauthorized access to '{url}'.")
+    raise Exception(f"Failed to fetch '{url}'. HTTP status code: {code}")
+
+
 ## IMPL ########################################################################
 
 
@@ -121,45 +151,37 @@ class DistsParser(HTMLParser):
             dist = href.strip("/")
             # change, for example "bionic-updates" to just "bionic"
             dist = dist.split("-")[0] if "-" in dist else dist
+            if dist == "devel":
+                return
             self.dists.add(dist)
 
 
-def _fallback_get_version(codename: str) -> tuple[str, str]:
+def _fallback_get_version(codename: str) -> str:
     """Fetch version and codename from the web as a fallback."""
     logging.warning("Unknown codename %s, trying to fetch version from the web.", codename)
-    code, res = geturl(f"{DISTS_URL}/{codename}/Release")
-    if code != 200:
-        raise Exception(f"Failed to fetch {DISTS_URL}/{codename}/Release: HTTP {code}")
+    url = f"{DISTS_URL}/{codename}/Release"
+    code, res = geturl(url)
+    handle_code(code, url)
     content = res.decode("utf-8")
-    version, _codename = None, None
     for line in content.splitlines():
         if line.startswith("Version:"):
             version = line.split(":", 1)[1].strip()
-        elif line.startswith("Codename:"):
-            _codename = line.split(":", 1)[1].strip()
-        if version and _codename:
-            break
-    if not version or not _codename:
-        raise Exception(f"Failed to parse version or codename from {DISTS_URL}/{codename}/Release")
-    return (version, _codename)
+            return version
+    raise Exception(f"Could not find version for codename '{codename}'.")
 
 
-def get_version_and_codename(codename: str) -> tuple[str, str]:
+def get_version(codename: str) -> str:
     if codename in CODENAME_TO_VERSION:
-        return (CODENAME_TO_VERSION[codename], codename)
-    if codename == "devel":
-        logging.debug("Assuming devel is %s %s", DEVEL[0], DEVEL[1])
-        return DEVEL
+        return CODENAME_TO_VERSION[codename]
     return _fallback_get_version(codename)
 
 
 def currently_supported_ubuntu_releases() -> list[tuple[str, str]]:
     code, res = geturl(DISTS_URL)
-    if code != 200:
-        raise Exception(f"Failed to fetch {DISTS_URL}: HTTP {code}")
+    handle_code(code, DISTS_URL)
     parser = DistsParser()
     parser.feed(res.decode("utf-8"))
-    out = [get_version_and_codename(codename) for codename in parser.dists]
+    out = [(get_version(codename), codename) for codename in parser.dists]
     out.sort()  # sort by version
     return out
 
@@ -200,8 +222,6 @@ class PR:
     head: Commit
     base: Commit
 
-    state: str  # open, closed, merged, draft etc
-
     @classmethod
     def from_json(cls, data: dict) -> PR:
         head = Commit.from_json(data["head"])
@@ -212,33 +232,41 @@ class PR:
             number=data["number"],
             title=data["title"],
             user=data["user"]["login"],
-            state=data["state"],
             head=head,
             base=base,
         )
+
+
+def geturl_github(url: str, params: dict[str, object] | None = None) -> tuple[int, bytes]:
+    assert "github.com" in url, "Only GitHub URLs are supported."
+    url = url.replace("github.com", "api.github.com/repos") if "api.github.com" not in url else url
+    url = url.rstrip("/")
+    headers = {"Accept": "application/vnd.github.v3+json", "X-GitHub-Api-Version": "2022-11-28"}
+    github_token = os.getenv("GITHUB_TOKEN", None)
+    if github_token:
+        headers["Authorization"] = f"Bearer {github_token}"
+    return geturl(url, params=params, headers=headers)
 
 
 def get_all_prs(url: str, per_page: int = 100) -> set[PR]:
     """Fetch all PRs from the remote repository using the GitHub API. The url
     should be the URL of the repository, e.g. www.github.com/canonical/chisel-releases.
     """
-    assert "github.com" in url, "Only GitHub URLs are supported."
     assert per_page > 0, "per_page must be a positive integer."
-    page = 1
-    api_url = url.replace("github.com", "api.github.com/repos").rstrip("/") + f"/pulls?state=open&per_page={per_page}"
-    logging.debug("Fetching PRs from GitHub API: %s", api_url)
+    url = url.rstrip("/") + "/pulls"
+
+    params = {"state": "open", "per_page": per_page, "page": 1}
 
     results = []
     while True:
-        code, result = geturl(api_url + f"&page={page}")
-        if code != 200:
-            raise Exception(f"Failed to fetch PRs from '{url}'. HTTP status code: {code}")
+        code, result = geturl_github(url, params=params)
+        handle_code(code, url)
         parsed_result = json.loads(result.decode("utf-8"))
         assert isinstance(parsed_result, list), "Expected response to be a list of PRs."
         results.extend(parsed_result)
-        if len(parsed_result) < page:
+        if len(parsed_result) < per_page:
             break
-        page += 1
+        params["page"] += 1  # type: ignore
 
     return set(PR.from_json(pr) for pr in results)
 
@@ -247,9 +275,30 @@ def prs_into_chisel_releases() -> set[PR]:
     prs = get_all_prs(url=CHISEL_RELEASES_URL)
     # filter down to PRs into branches named "ubuntu-XX.XX"
     prs = {pr for pr in prs if pr.base.ref.startswith("ubuntu-")}
-    # drop PRs which are not open
-    prs = {pr for pr in prs if pr.state == "open"}
     return prs
+
+
+################################################################################
+
+
+def get_slices_in_pr(pr: PR) -> set[str]:
+    """Get the list of files in the /slices directory in the base branch of the PR."""
+    assert pr.base.repo_owner == "canonical", "Only PRs into canonical repositories are supported."
+    assert pr.base.repo_name == "chisel-releases", "Only PRs into chisel-releases are supported."
+    assert pr.base.ref.startswith("ubuntu-"), "Only PRs into branches named 'ubuntu-XX.XX' are supported."
+
+    url = f"https://api.github.com/repos/{pr.base.repo_owner}/{pr.base.repo_name}/contents/slices"
+    code, res = geturl_github(
+        url,
+        params={"ref": pr.base.ref},
+    )
+    handle_code(code, url)
+    parsed_result = json.loads(res.decode("utf-8"))
+    assert isinstance(parsed_result, list), "Expected response to be a list of files."
+
+    files = {item["name"] for item in parsed_result if item["type"] == "file"}
+    files = {f.removesuffix(".yaml") for f in files if f.endswith(".yaml")}
+    return files
 
 
 ## MAIN ########################################################################
@@ -257,10 +306,73 @@ def prs_into_chisel_releases() -> set[PR]:
 
 def main(args: argparse.Namespace) -> None:
     ubuntu_releases = currently_supported_ubuntu_releases()
-    print(ubuntu_releases)
-    prs = get_all_prs(url=CHISEL_RELEASES_URL)
+    prs = prs_into_chisel_releases()
+    logging.info("Found %d open PRs in %s", len(prs), CHISEL_RELEASES_URL)
+
+    prs_by_ubuntu_release: dict[tuple[str, str], set[PR]] = {
+        ubuntu_release: set() for ubuntu_release in ubuntu_releases
+    }
     for pr in prs:
-        print(pr.url, pr.number, pr.title, pr.base.ref)
+        branch = pr.base.ref
+        assert branch.startswith("ubuntu-"), "Only PRs into branches named 'ubuntu-XX.XX' are supported."
+        version = branch.split("-", 1)[1]
+        codename = VERSION_TO_CODENAME.get(version, "unknown")
+        key = (version, codename)
+        if key not in prs_by_ubuntu_release:
+            logging.warning(
+                "PR #%d is into unsupported Ubuntu release %s (%s). Skipping.", pr.number, version, codename
+            )
+            continue
+        prs_by_ubuntu_release[key].add(pr)
+
+    # filter out releases with no PRs
+    prs_by_ubuntu_release = {k: v for k, v in prs_by_ubuntu_release.items() if len(v) > 0}
+
+    # For each PR, get the list of files in the /slices directory in the base branch
+    slices_by_pr: dict[PR, set[str]] = {}
+    if args.jobs == 1:
+        # NOTE: it is much nicer to debug/profile without parallelism
+        slices_by_pr = {pr: get_slices_in_pr(pr) for pr in prs}
+
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        max_workers = args.jobs if args.jobs != -1 else None  # None = as many as possible
+        _prs = list(prs)  # we want list for zipping with results
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            results = executor.map(get_slices_in_pr, _prs)
+        for pr, slices in zip(_prs, results):
+            slices_by_pr[pr] = slices
+
+    logging.info("Fetched slices for %d PRs", len(slices_by_pr))
+
+    # Log some info
+    for ubuntu_release, prs in prs_by_ubuntu_release.items():
+        logging.info("Found %d open PRs into ubuntu-%s (%s)", len(prs), ubuntu_release[0], ubuntu_release[1])
+        for pr in prs:
+            slices = slices_by_pr.get(pr, set())
+            logging.info("#%d: %s (%d slices)", pr.number, pr.title, len(slices))
+
+    # for ubuntu_release, prs in prs_by_ubuntu_release.items():
+    #     future_releases = [r for r in ubuntu_releases if r > ubuntu_release]
+    #     for future_release in future_releases:
+    #         prs_into_future_release = prs_by_ubuntu_release.get(future_release, set())
+    #         if not prs_into_future_release:
+    #             continue
+    #         for pr in prs:
+    #             slices = slices_by_pr.get(pr, set())
+    #             for future_pr in prs_into_future_release:
+    #                 future_slices = slices_by_pr.get(future_pr, set())
+    #                 missing_slices = slices - future_slices
+
+    # for ubuntu_release, prs in prs_by_ubuntu_release.items():
+    #     logging.info("Ubuntu release: %s (%s)", ubuntu_release[0], ubuntu_release[1])
+    # for pr in prs:
+    #     slices = slices_by_pr.get(pr, set())
+    #     logging.info("  PR #%d: %s (%d slices)", pr.number, pr.title, len(slices))
+    #     for slice in sorted(slices):
+    #         logging.info("    - %s", slice)
+
     raise NotImplementedError("Main logic not implemented yet.")
     # print(ubuntu_releases)
 
@@ -281,7 +393,17 @@ def parse_args() -> argparse.Namespace:
         choices=["debug", "info", "warning", "error", "fatal", "critical"],
         help="Set the logging level (default: info).",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--jobs",
+        "-j",
+        type=int,
+        default=1,  # -1 = as many as possible, 1 = no parallelism
+        help="Number of parallel jobs to use when fetching PR details. Default is 1 (no parallelism).",
+    )
+    args = parser.parse_args()
+    if args.jobs == 0 or args.jobs < -1:
+        parser.error("--jobs must be a positive integer or -1 for unlimited.")
+    return args
 
 
 def setup_logging(log_level: str) -> None:
@@ -312,6 +434,10 @@ if __name__ == "__main__":
     setup_logging(args.log_level)
     try:
         main(args)
+
+    except RateLimit as e:
+        logging.error("Rate limited: %s", e)
+        sys.exit(98)
 
     except NotImplementedError as e:
         logging.error("Not implemented: %s", e)
