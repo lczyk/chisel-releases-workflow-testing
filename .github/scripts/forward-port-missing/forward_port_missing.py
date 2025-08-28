@@ -58,6 +58,8 @@ CODENAME_TO_VERSION = {v: k for k, v in VERSION_TO_CODENAME.items()}
 
 DISTS_URL = "https://archive.ubuntu.com/ubuntu/dists"
 
+CHISEL_RELEASES_URL = "https://github.com/canonical/chisel-releases"
+
 
 ## LIB #########################################################################
 
@@ -164,9 +166,90 @@ def currently_supported_ubuntu_releases() -> list[tuple[str, str]]:
 
 ################################################################################
 
+import json
+from dataclasses import dataclass
 
-def prs_into_chisel_releases() -> list[dict[str, object]]:
-    raise NotImplementedError("Function prs_into_chisel_releases is not implemented yet.")
+
+@dataclass(frozen=True, unsafe_hash=True)
+class Commit:
+    commit: str  # SHA of the commit
+    ref: str  # Branch name
+    repo_name: str  # Name of the repository
+    repo_url: str  # URL of the repository
+    repo_owner: str  # Owner of the repository
+
+    @classmethod
+    def from_json(cls, data: dict) -> Commit:
+        return cls(
+            commit=data["sha"],
+            ref=data["ref"],
+            repo_name=data["repo"]["name"],
+            repo_url=data["repo"]["html_url"],
+            repo_owner=data["repo"]["owner"]["login"],
+        )
+
+
+@dataclass(frozen=True, unsafe_hash=True)
+class PR:
+    url: str  # URL of the PR, e.g. http
+    number: int  # number of the PR, e.g #601
+    title: str  # title of the PR
+
+    user: str  # user who created the PR (usually, but not necessarily, the author)
+
+    head: Commit
+    base: Commit
+
+    state: str  # open, closed, merged, draft etc
+
+    @classmethod
+    def from_json(cls, data: dict) -> PR:
+        head = Commit.from_json(data["head"])
+        base = Commit.from_json(data["base"])
+
+        return cls(
+            url=data["html_url"],
+            number=data["number"],
+            title=data["title"],
+            user=data["user"]["login"],
+            state=data["state"],
+            head=head,
+            base=base,
+        )
+
+
+def get_all_prs(url: str, per_page: int = 100) -> set[PR]:
+    """Fetch all PRs from the remote repository using the GitHub API. The url
+    should be the URL of the repository, e.g. www.github.com/canonical/chisel-releases.
+    """
+    assert "github.com" in url, "Only GitHub URLs are supported."
+    assert per_page > 0, "per_page must be a positive integer."
+    page = 1
+    api_url = url.replace("github.com", "api.github.com/repos").rstrip("/") + f"/pulls?state=open&per_page={per_page}"
+    logging.debug("Fetching PRs from GitHub API: %s", api_url)
+
+    results = []
+    while True:
+        code, result = geturl(api_url + f"&page={page}")
+        if code != 200:
+            raise Exception(f"Failed to fetch PRs from '{url}'. HTTP status code: {code}")
+        parsed_result = json.loads(result.decode("utf-8"))
+        assert isinstance(parsed_result, list), "Expected response to be a list of PRs."
+        results.extend(parsed_result)
+        if len(parsed_result) < page:
+            break
+        page += 1
+
+    return set(PR.from_json(pr) for pr in results)
+
+
+def prs_into_chisel_releases() -> set[PR]:
+    prs = get_all_prs(url=CHISEL_RELEASES_URL)
+    # filter down to PRs into branches named "ubuntu-XX.XX"
+    prs = {pr for pr in prs if pr.base.ref.startswith("ubuntu-")}
+    # drop PRs which are not open
+    prs = {pr for pr in prs if pr.state == "open"}
+    return prs
 
 
 ## MAIN ########################################################################
@@ -175,8 +258,9 @@ def prs_into_chisel_releases() -> list[dict[str, object]]:
 def main(args: argparse.Namespace) -> None:
     ubuntu_releases = currently_supported_ubuntu_releases()
     print(ubuntu_releases)
-    prs = prs_into_chisel_releases()
-    print(prs)
+    prs = get_all_prs(url=CHISEL_RELEASES_URL)
+    for pr in prs:
+        print(pr.url, pr.number, pr.title, pr.base.ref)
     raise NotImplementedError("Main logic not implemented yet.")
     # print(ubuntu_releases)
 

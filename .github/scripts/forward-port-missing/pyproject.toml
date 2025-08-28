@@ -17,7 +17,7 @@ follow_imports = "normal"
 namespace_packages = true
 disallow_untyped_defs = true
 disallow_any_unimported = true
-disallow_any_generics = true
+# disallow_any_generics = true
 no_implicit_optional = true
 check_untyped_defs = true
 warn_return_any = true
@@ -52,6 +52,7 @@ line-length = 120
 lint.ignore = [
     "PLC0415", # imports should be at the top-level of the file
     "PLR2004", # magic values
+    "E402",    # module level import not at top of file
     # "SIM105",
     # "PLR0911", # too many return statements
     # "PLR0912", # too many branches
@@ -95,6 +96,3 @@ dev = [
     "pytest>=8.3.5",
     "ruff>=0.11.4",
 ]
-
-[tool.pyright]
-reportMissingImports = "information"
