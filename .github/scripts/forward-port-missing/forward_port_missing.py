@@ -19,17 +19,37 @@ __changelog__ = [
     ("0.0.0", "boilerplate", "@lczyk"),
 ]
 
+## LIB #########################################################################
 
-# geturl from https://github.com/lczyk/geturl 0.4.4
-def geturl(url: str) -> tuple[int, bytes]:
+
+# geturl from https://github.com/lczyk/geturl 0.4.5
+def geturl(
+    url: str,
+    params: dict[str, object] | None = None,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, bytes]:
     """Make a GET request to a URL and return the response and status code."""
 
     import urllib
     import urllib.error
+    import urllib.parse
     import urllib.request
 
+    if params is not None:
+        if "?" in url:
+            params = dict(params)  # make a modifiable copy
+            existing_params = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+            params = {**existing_params, **params}  # params take precedence
+            url = url.split("?")[0]
+        url = url + "?" + urllib.parse.urlencode(params)
+
+    request = urllib.request.Request(url)
+    if headers is not None:
+        for h_key, h_value in headers.items():
+            request.add_header(h_key, h_value)
+
     try:
-        with urllib.request.urlopen(url) as r:
+        with urllib.request.urlopen(request) as r:
             code = r.getcode()
             res = r.read()
 
