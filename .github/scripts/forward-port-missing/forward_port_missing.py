@@ -117,14 +117,15 @@ DEVEL = ("25.10", "questing")
 
 CODENAME_TO_VERSION = {v: k for k, v in VERSION_TO_CODENAME.items()}
 
-DISTS_URL = "https://archive.ubuntu.com/ubuntu/dists/"
+DISTS_URL = "https://archive.ubuntu.com/ubuntu/dists"
 
 
 def _fallback_get_version(codename: str) -> tuple[str, str]:
+    """Fetch version and codename from the web as a fallback."""
     logging.warning("Unknown codename %s, trying to fetch version from the web.", codename)
-    code, res = geturl(f"{DISTS_URL}{codename}/Release")
+    code, res = geturl(f"{DISTS_URL}/{codename}/Release")
     if code != 200:
-        raise Exception(f"Failed to fetch {DISTS_URL}{codename}/Release: HTTP {code}")
+        raise Exception(f"Failed to fetch {DISTS_URL}/{codename}/Release: HTTP {code}")
     content = res.decode("utf-8")
     version, _codename = None, None
     for line in content.splitlines():
@@ -135,7 +136,7 @@ def _fallback_get_version(codename: str) -> tuple[str, str]:
         if version and _codename:
             break
     if not version or not _codename:
-        raise Exception(f"Failed to parse version or codename from {DISTS_URL}{codename}/Release")
+        raise Exception(f"Failed to parse version or codename from {DISTS_URL}/{codename}/Release")
     return (version, _codename)
 
 
