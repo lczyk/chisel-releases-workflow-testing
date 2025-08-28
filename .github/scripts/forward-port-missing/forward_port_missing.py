@@ -22,6 +22,43 @@ __changelog__ = [
     ("0.0.0", "boilerplate", "@lczyk"),
 ]
 
+## CONSTANTS ###################################################################
+
+# spell-checker: ignore dists utopic yakkety eoan DEVEL
+VERSION_TO_CODENAME = {
+    "14.04": "trusty",
+    "14.10": "utopic",
+    "15.04": "vivid",
+    "15.10": "wily",
+    "16.04": "xenial",
+    "16.10": "yakkety",
+    "17.04": "zesty",
+    "17.10": "artful",
+    "18.04": "bionic",
+    "18.10": "cosmic",
+    "19.04": "disco",
+    "19.10": "eoan",
+    "20.04": "focal",
+    "20.10": "groovy",
+    "21.04": "hirsute",
+    "21.10": "impish",
+    "22.04": "jammy",
+    "22.10": "kinetic",
+    "23.04": "lunar",
+    "23.10": "mantic",
+    "24.04": "noble",
+    "24.10": "oracular",
+    "25.04": "plucky",
+    "25.10": "questing",
+}
+
+DEVEL = ("25.10", "questing")
+
+CODENAME_TO_VERSION = {v: k for k, v in VERSION_TO_CODENAME.items()}
+
+DISTS_URL = "https://archive.ubuntu.com/ubuntu/dists"
+
+
 ## LIB #########################################################################
 
 
@@ -85,41 +122,6 @@ class DistsParser(HTMLParser):
             self.dists.add(dist)
 
 
-# spell-checker: ignore dists utopic yakkety eoan DEVEL
-VERSION_TO_CODENAME = {
-    "14.04": "trusty",
-    "14.10": "utopic",
-    "15.04": "vivid",
-    "15.10": "wily",
-    "16.04": "xenial",
-    "16.10": "yakkety",
-    "17.04": "zesty",
-    "17.10": "artful",
-    "18.04": "bionic",
-    "18.10": "cosmic",
-    "19.04": "disco",
-    "19.10": "eoan",
-    "20.04": "focal",
-    "20.10": "groovy",
-    "21.04": "hirsute",
-    "21.10": "impish",
-    "22.04": "jammy",
-    "22.10": "kinetic",
-    "23.04": "lunar",
-    "23.10": "mantic",
-    "24.04": "noble",
-    "24.10": "oracular",
-    "25.04": "plucky",
-    "25.10": "questing",
-}
-
-DEVEL = ("25.10", "questing")
-
-CODENAME_TO_VERSION = {v: k for k, v in VERSION_TO_CODENAME.items()}
-
-DISTS_URL = "https://archive.ubuntu.com/ubuntu/dists"
-
-
 def _fallback_get_version(codename: str) -> tuple[str, str]:
     """Fetch version and codename from the web as a fallback."""
     logging.warning("Unknown codename %s, trying to fetch version from the web.", codename)
@@ -160,12 +162,21 @@ def currently_supported_ubuntu_releases() -> list[tuple[str, str]]:
     return out
 
 
+################################################################################
+
+
+def prs_into_chisel_releases() -> list[dict[str, object]]:
+    raise NotImplementedError("Function prs_into_chisel_releases is not implemented yet.")
+
+
 ## MAIN ########################################################################
 
 
 def main(args: argparse.Namespace) -> None:
     ubuntu_releases = currently_supported_ubuntu_releases()
     print(ubuntu_releases)
+    prs = prs_into_chisel_releases()
+    print(prs)
     raise NotImplementedError("Main logic not implemented yet.")
     # print(ubuntu_releases)
 
