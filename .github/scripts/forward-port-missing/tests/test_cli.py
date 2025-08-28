@@ -26,7 +26,7 @@ def test_version() -> None:
     try:
         from forward_port_missing import __version__
     except ImportError:
-        pytest.fail("Could not import __version__ from forward_port_missing")
+        pytest.fail("Could not import __version__ from forward_port_missing", pytrace=False)
     result, code = call("--version")
     assert code == 0
 

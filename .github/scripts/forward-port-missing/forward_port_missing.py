@@ -11,10 +11,11 @@ import argparse
 import logging
 import sys
 
-__version__ = "0.1.0"
+__version__ = "0.0.1"
 __author__ = "Marcin Konowalczyk"
 
 __changelog__ = [
+    (__version__, "initial testing", "@lczyk"),
     ("0.0.0", "boilerplate", "@lczyk"),
 ]
 
