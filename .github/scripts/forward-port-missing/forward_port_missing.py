@@ -12,12 +12,14 @@ import argparse
 import logging
 import os
 import sys
+import time
 from html.parser import HTMLParser
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 __author__ = "Marcin Konowalczyk"
 
 __changelog__ = [
+    ("0.0.5", "slice diff from the merge base, not the branch head", "@lczyk"),
     ("0.0.4", "--jobs for parallel slice fetching", "@lczyk"),
     ("0.0.3", "get_slices_in_pr implemented", "@lczyk"),
     ("0.0.2", "currently_supported_ubuntu_releases implemented", "@lczyk"),
@@ -237,6 +239,27 @@ class PR:
         )
 
 
+def get_merge_base(base: Commit, head: Commit) -> str:
+    """Get the SHA of the merge base between head and base."""
+    url = (
+        f"https://api.github.com/repos/{base.repo_owner}/{base.repo_name}/compare/"
+        f"{base.repo_owner}:{base.ref}...{head.repo_owner}:{head.ref}?per_page=1"
+    )
+    code, res = geturl_github(url)
+    handle_code(code, url)
+    parsed_result = json.loads(res.decode("utf-8"))
+    assert isinstance(parsed_result, dict), "Expected response to be a dict."
+    if "merge_base_commit" not in parsed_result:
+        raise Exception(f"Could not find merge_base_commit in response from '{url}'.")
+    merge_base_commit = parsed_result["merge_base_commit"]
+    assert isinstance(merge_base_commit, dict), "Expected merge_base_commit to be a dict."
+    if "sha" not in merge_base_commit:
+        raise Exception(f"Could not find sha in merge_base_commit from '{url}'.")
+    sha = merge_base_commit["sha"]
+    assert isinstance(sha, str), "Expected sha to be a str."
+    return sha
+
+
 def geturl_github(url: str, params: dict[str, object] | None = None) -> tuple[int, bytes]:
     assert "github.com" in url, "Only GitHub URLs are supported."
     url = url.replace("github.com", "api.github.com/repos") if "api.github.com" not in url else url
@@ -281,16 +304,15 @@ def prs_into_chisel_releases() -> set[PR]:
 ################################################################################
 
 
-def get_slices_in_pr(pr: PR) -> set[str]:
-    """Get the list of files in the /slices directory in the base branch of the PR."""
-    assert pr.base.repo_owner == "canonical", "Only PRs into canonical repositories are supported."
-    assert pr.base.repo_name == "chisel-releases", "Only PRs into chisel-releases are supported."
-    assert pr.base.ref.startswith("ubuntu-"), "Only PRs into branches named 'ubuntu-XX.XX' are supported."
+def get_slices(repo_owner: str, repo_name: str, ref: str) -> set[str]:
+    """Get the list of files in the /slices directory in the given ref.
+    ref can be a branch name, tag name, or commit SHA.
+    """
 
-    url = f"https://api.github.com/repos/{pr.base.repo_owner}/{pr.base.repo_name}/contents/slices"
+    url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/slices"
     code, res = geturl_github(
         url,
-        params={"ref": pr.base.ref},
+        params={"ref": ref},
     )
     handle_code(code, url)
     parsed_result = json.loads(res.decode("utf-8"))
@@ -328,30 +350,87 @@ def main(args: argparse.Namespace) -> None:
     # filter out releases with no PRs
     prs_by_ubuntu_release = {k: v for k, v in prs_by_ubuntu_release.items() if len(v) > 0}
 
-    # For each PR, get the list of files in the /slices directory in the base branch
-    slices_by_pr: dict[PR, set[str]] = {}
+    merge_bases_by_pr: dict[PR, str] = {}
     if args.jobs == 1:
         # NOTE: it is much nicer to debug/profile without parallelism
-        slices_by_pr = {pr: get_slices_in_pr(pr) for pr in prs}
+        merge_bases_by_pr = {pr: get_merge_base(pr.base, pr.head) for pr in prs}
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        _prs = list(prs)  # we want list for zipping with results
+        with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+            thread_pool_size = getattr(executor, "_max_workers", -1)
+            results = list(executor.map(lambda pr: get_merge_base(pr.base, pr.head), _prs))
+        logging.debug("Used a thread pool of size %d.", thread_pool_size)
+        merge_bases_by_pr = {pr: mb for pr, mb in zip(_prs, results)}
+
+    logging.info("Fetched merge bases for %d PRs.", len(merge_bases_by_pr))
+    for pr, mb in merge_bases_by_pr.items():
+        if pr.base.commit != mb:
+            logging.warning(
+                "PR #%d: base branch '%s' has advanced since the PR was created/updated. Consider rebasing.",
+                pr.number,
+                pr.base.ref,
+            )
+
+    # For each PR, get the list of files in the /slices directory in the base branch
+    slices_in_head_by_pr: dict[PR, set[str]] = {}
+    slices_in_base_by_pr: dict[PR, set[str]] = {}
+    get_slices_base = lambda pr: get_slices(pr.base.repo_owner, pr.base.repo_name, merge_bases_by_pr[pr])
+    get_slices_head = lambda pr: get_slices(pr.head.repo_owner, pr.head.repo_name, pr.head.ref)
+
+    tic = time.perf_counter()
+    if args.jobs == 1:
+        # NOTE: it is much nicer to debug/profile without parallelism
+        slices_in_head_by_pr = {pr: get_slices_head(pr) for pr in prs}
+        slices_in_base_by_pr = {pr: get_slices_base(pr) for pr in prs}
 
     else:
         from concurrent.futures import ThreadPoolExecutor
 
-        max_workers = args.jobs if args.jobs != -1 else None  # None = as many as possible
         _prs = list(prs)  # we want list for zipping with results
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            results = executor.map(get_slices_in_pr, _prs)
-        for pr, slices in zip(_prs, results):
-            slices_by_pr[pr] = slices
+        with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+            thread_pool_size = getattr(executor, "_max_workers", -1)
+            results_head = list(executor.map(get_slices_head, _prs))
+            results_base = list(executor.map(get_slices_base, _prs))
 
-    logging.info("Fetched slices for %d PRs", len(slices_by_pr))
+        logging.debug("Used a thread pool of size %d.", thread_pool_size)
+        slices_in_head_by_pr = {pr: slices for pr, slices in zip(_prs, results_head)}
+        slices_in_base_by_pr = {pr: slices for pr, slices in zip(_prs, results_base)}
+    toc = time.perf_counter()
+
+    total_slices = sum(len(slices) for slices in slices_in_head_by_pr.values())
+    total_slices += sum(len(slices) for slices in slices_in_base_by_pr.values())
+    logging.info("Fetched %d slices for %d PRs in %.2f seconds.", total_slices, len(prs), toc - tic)
 
     # Log some info
     for ubuntu_release, prs in prs_by_ubuntu_release.items():
         logging.info("Found %d open PRs into ubuntu-%s (%s)", len(prs), ubuntu_release[0], ubuntu_release[1])
         for pr in prs:
-            slices = slices_by_pr.get(pr, set())
-            logging.info("#%d: %s (%d slices)", pr.number, pr.title, len(slices))
+            logging.info(
+                "  #%d: %s (%d slices in head, %d slices in merge base)",
+                pr.number,
+                pr.title,
+                len(slices_in_head_by_pr.get(pr, set())),
+                len(slices_in_base_by_pr.get(pr, set())),
+            )
+
+    # These PRs will be skipped in all further processing
+    prs_to_skip: set[PR] = set()
+
+    for ubuntu_release, prs in prs_by_ubuntu_release.items():
+        logging.info("Found %d open PRs into ubuntu-%s (%s)", len(prs), ubuntu_release[0], ubuntu_release[1])
+        for pr in prs:
+            slices_in_head = slices_in_head_by_pr.get(pr, set())
+            slices_in_base = slices_in_base_by_pr.get(pr, set())
+            if len(slices_in_head) < len(slices_in_base):
+                prs_to_skip.add(pr)
+                logging.warning(
+                    "Skipping PR #%d as it has fewer slices in head (%d) than in base (%d). Possible slice removal!",
+                    pr.number,
+                    len(slices_in_head),
+                    len(slices_in_base),
+                )
 
     # for ubuntu_release, prs in prs_by_ubuntu_release.items():
     #     future_releases = [r for r in ubuntu_releases if r > ubuntu_release]
@@ -403,6 +482,7 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if args.jobs == 0 or args.jobs < -1:
         parser.error("--jobs must be a positive integer or -1 for unlimited.")
+    args.jobs = None if args.jobs == -1 else args.jobs  # None = as many as possible
     return args
 
 
@@ -432,6 +512,7 @@ def setup_logging(log_level: str) -> None:
 if __name__ == "__main__":
     args = parse_args()
     setup_logging(args.log_level)
+    logging.debug("Parsed args: %s", args)
     try:
         main(args)
 

@@ -1,7 +1,7 @@
 [project]
 name = "forward-port-missing"
 description = "Add your description here"
-version = "0.0.4"
+version = "0.0.5"
 authors = [{ name = "Marcin Konowalczyk", email = "marcin.konowalczyk@canonical.com" }]
 readme = "README.md"
 requires-python = ">=3.9"
@@ -54,9 +54,11 @@ lint.ignore = [
     "PLR2004", # magic values
     "E402",    # module level import not at top of file
     "PERF203", # try-except within the loop body
+    "E731",    # do not assign a lambda expression
+    "PLR0915", # too many statements
+    "PLR0912", # too many branches
     # "SIM105",
     # "PLR0911", # too many return statements
-    # "PLR0912", # too many branches
     # "PLR0913", # too many arguments in function definition
     #
 ]
