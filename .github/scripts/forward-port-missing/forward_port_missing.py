@@ -9,16 +9,19 @@ Check labels on PRs and forward-port if needed.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
 import time
+from dataclasses import dataclass
 from html.parser import HTMLParser
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"
 __author__ = "Marcin Konowalczyk"
 
 __changelog__ = [
+    ("0.0.6", "main forward-porting logic implemented", "@lczyk"),
     ("0.0.5", "slice diff from the merge base, not the branch head", "@lczyk"),
     ("0.0.4", "--jobs for parallel slice fetching", "@lczyk"),
     ("0.0.3", "get_slices_in_pr implemented", "@lczyk"),
@@ -178,20 +181,26 @@ def get_version(codename: str) -> str:
     return _fallback_get_version(codename)
 
 
-def currently_supported_ubuntu_releases() -> list[tuple[str, str]]:
+@dataclass(frozen=True, order=True)
+class UbuntuRelease:
+    version: str
+    codename: str
+
+    def __str__(self) -> str:
+        return f"ubuntu-{self.version} ({self.codename})"
+
+
+def currently_supported_ubuntu_releases() -> list[UbuntuRelease]:
     code, res = geturl(DISTS_URL)
     handle_code(code, DISTS_URL)
     parser = DistsParser()
     parser.feed(res.decode("utf-8"))
     out = [(get_version(codename), codename) for codename in parser.dists]
     out.sort()  # sort by version
-    return out
+    return [UbuntuRelease(version=v, codename=c) for v, c in out]
 
 
 ################################################################################
-
-import json
-from dataclasses import dataclass
 
 
 @dataclass(frozen=True, unsafe_hash=True)
@@ -224,6 +233,8 @@ class PR:
     head: Commit
     base: Commit
 
+    draft: bool
+
     @classmethod
     def from_json(cls, data: dict) -> PR:
         head = Commit.from_json(data["head"])
@@ -236,6 +247,7 @@ class PR:
             user=data["user"]["login"],
             head=head,
             base=base,
+            draft=data.get("draft", False),  # draft field was added later
         )
 
 
@@ -271,6 +283,20 @@ def geturl_github(url: str, params: dict[str, object] | None = None) -> tuple[in
     return geturl(url, params=params, headers=headers)
 
 
+def ubuntu_branches_in_chisel_releases() -> set[UbuntuRelease]:
+    code, res = geturl_github(f"{CHISEL_RELEASES_URL}/branches", params={"per_page": 100})
+    handle_code(code, CHISEL_RELEASES_URL)
+    parsed_result = json.loads(res.decode("utf-8"))
+    assert isinstance(parsed_result, list), "Expected response to be a list of branches."
+    branches = {branch["name"] for branch in parsed_result if branch["name"].startswith("ubuntu-")}
+    ubuntu_releases = set()
+    for branch in branches:
+        version = branch.split("-", 1)[1]
+        codename = VERSION_TO_CODENAME.get(version, "unknown")
+        ubuntu_releases.add(UbuntuRelease(version, codename))
+    return ubuntu_releases
+
+
 def get_all_prs(url: str, per_page: int = 100) -> set[PR]:
     """Fetch all PRs from the remote repository using the GitHub API. The url
     should be the URL of the repository, e.g. www.github.com/canonical/chisel-releases.
@@ -298,6 +324,8 @@ def prs_into_chisel_releases() -> set[PR]:
     prs = get_all_prs(url=CHISEL_RELEASES_URL)
     # filter down to PRs into branches named "ubuntu-XX.XX"
     prs = {pr for pr in prs if pr.base.ref.startswith("ubuntu-")}
+    # filter out draft PRs
+    prs = {pr for pr in prs if not pr.draft}
     return prs
 
 
@@ -323,42 +351,16 @@ def get_slices(repo_owner: str, repo_name: str, ref: str) -> set[str]:
     return files
 
 
-## MAIN ########################################################################
-
-
-def main(args: argparse.Namespace) -> None:
-    ubuntu_releases = currently_supported_ubuntu_releases()
-    prs = prs_into_chisel_releases()
-    logging.info("Found %d open PRs in %s", len(prs), CHISEL_RELEASES_URL)
-
-    prs_by_ubuntu_release: dict[tuple[str, str], set[PR]] = {
-        ubuntu_release: set() for ubuntu_release in ubuntu_releases
-    }
-    for pr in prs:
-        branch = pr.base.ref
-        assert branch.startswith("ubuntu-"), "Only PRs into branches named 'ubuntu-XX.XX' are supported."
-        version = branch.split("-", 1)[1]
-        codename = VERSION_TO_CODENAME.get(version, "unknown")
-        key = (version, codename)
-        if key not in prs_by_ubuntu_release:
-            logging.warning(
-                "PR #%d is into unsupported Ubuntu release %s (%s). Skipping.", pr.number, version, codename
-            )
-            continue
-        prs_by_ubuntu_release[key].add(pr)
-
-    # filter out releases with no PRs
-    prs_by_ubuntu_release = {k: v for k, v in prs_by_ubuntu_release.items() if len(v) > 0}
-
+def get_merge_bases_by_pr(prs: set[PR], jobs: int | None = 1) -> dict[PR, str]:
     merge_bases_by_pr: dict[PR, str] = {}
-    if args.jobs == 1:
+    if jobs == 1:
         # NOTE: it is much nicer to debug/profile without parallelism
         merge_bases_by_pr = {pr: get_merge_base(pr.base, pr.head) for pr in prs}
     else:
         from concurrent.futures import ThreadPoolExecutor
 
         _prs = list(prs)  # we want list for zipping with results
-        with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
             thread_pool_size = getattr(executor, "_max_workers", -1)
             results = list(executor.map(lambda pr: get_merge_base(pr.base, pr.head), _prs))
         logging.debug("Used a thread pool of size %d.", thread_pool_size)
@@ -373,6 +375,12 @@ def main(args: argparse.Namespace) -> None:
                 pr.base.ref,
             )
 
+    return merge_bases_by_pr
+
+
+def get_slices_by_pr(
+    prs: set[PR], merge_bases_by_pr: dict[PR, str], jobs: int | None = 1
+) -> tuple[dict[PR, set[str]], dict[PR, set[str]]]:
     # For each PR, get the list of files in the /slices directory in the base branch
     slices_in_head_by_pr: dict[PR, set[str]] = {}
     slices_in_base_by_pr: dict[PR, set[str]] = {}
@@ -403,10 +411,117 @@ def main(args: argparse.Namespace) -> None:
     total_slices += sum(len(slices) for slices in slices_in_base_by_pr.values())
     logging.info("Fetched %d slices for %d PRs in %.2f seconds.", total_slices, len(prs), toc - tic)
 
+    return slices_in_head_by_pr, slices_in_base_by_pr
+
+
+def get_results_by_pr(
+    prs_by_ubuntu_release: dict[UbuntuRelease, set[PR]],
+    new_slices_by_pr: dict[PR, set[str]],
+) -> dict[PR, dict[UbuntuRelease, set[PR | None]]]:
+    prs: set[PR] = set()
+    for prs_in_release in prs_by_ubuntu_release.values():
+        prs.update(prs_in_release)
+
+    ubuntu_releases = sorted(prs_by_ubuntu_release.keys())
+
+    # For each PR we have a mapping from ubuntu release to a set of PRs that
+    # forward-port the new slices to that release. An empty set means no
+    # forward-port found, a set with None means no new slices to forward-port.
+    status_by_pr: dict[PR, dict[UbuntuRelease, set[PR | None]]] = {pr: {} for pr in prs}
+
+    for ubuntu_release, prs_in_release in prs_by_ubuntu_release.items():
+        future_releases = [r for r in ubuntu_releases if r > ubuntu_release]
+        if not future_releases:
+            logging.debug("No future releases for %s. Skipping all PRs into it.", ubuntu_release)
+            continue
+
+        for pr in prs_in_release:
+            assert pr in status_by_pr
+            new_slices = new_slices_by_pr.get(pr, set())
+
+            for future_release in future_releases:
+                status_by_pr[pr][future_release] = set()
+                if not new_slices:
+                    logging.debug("PR #%d contains no new slices. Marking as OK.", pr.number)
+                    # No new slices to forward-port, so definitely OK
+                    status_by_pr[pr][future_release].add(None)
+                    continue
+
+                prs_into_future_release = prs_by_ubuntu_release.get(future_release, set())
+                if not prs_into_future_release:
+                    logging.debug("No PRs into future release %s of PR #%d", future_release, pr.number)
+                    # No PRs into this future release
+                    continue
+
+                for pr_future in prs_into_future_release:
+                    new_slices_in_future = new_slices_by_pr.get(pr_future, set())
+                    if not new_slices_in_future:
+                        # logging.debug(
+                        #     "PR #%d cannot be the forward-port of PR #%d because it contains no new slices.",
+                        #     pr_future.number,
+                        #     pr.number,
+                        # )
+                        continue
+                    if new_slices.issubset(new_slices_in_future):
+                        # Hooray! We found a PR that forward-ports all new slices!
+                        status_by_pr[pr][future_release].add(pr_future)
+
+    return status_by_pr
+
+
+## MAIN ########################################################################
+
+
+def main(args: argparse.Namespace) -> None:
+    ubuntu_releases = currently_supported_ubuntu_releases()
+    ubuntu_branches = ubuntu_branches_in_chisel_releases()
+
+    if logging.getLogger().isEnabledFor(logging.DEBUG):
+        ubuntu_releases_str = ", ".join(str(r) for r in ubuntu_releases)
+        logging.debug(
+            "Found %d supported Ubuntu releases in the archives %s", len(ubuntu_releases), ubuntu_releases_str
+        )
+        ubuntu_branches_str = ", ".join(str(r) for r in sorted(ubuntu_branches))
+        logging.debug("Found %d Ubuntu branches in chisel-releases: %s", len(ubuntu_branches), ubuntu_branches_str)
+        will_drop = set(ubuntu_releases) - ubuntu_branches
+        if will_drop:
+            will_drop_str = ", ".join(str(r) for r in sorted(will_drop))
+            logging.debug("Will drop %d supported releases without branches: %s", len(will_drop), will_drop_str)
+
+    ubuntu_releases = [r for r in ubuntu_releases if r in ubuntu_branches]
+    logging.info(
+        "Considering %d supported Ubuntu releases with branches in chisel-releases: %s",
+        len(ubuntu_releases),
+        ", ".join(str(r) for r in ubuntu_releases),
+    )
+
+    prs = prs_into_chisel_releases()
+    logging.info("Found %d open PRs in %s", len(prs), CHISEL_RELEASES_URL)
+
+    prs_by_ubuntu_release: dict[UbuntuRelease, set[PR]] = {ubuntu_release: set() for ubuntu_release in ubuntu_releases}
+    for pr in prs:
+        branch = pr.base.ref
+        assert branch.startswith("ubuntu-"), "Only PRs into branches named 'ubuntu-XX.XX' are supported."
+        version = branch.split("-", 1)[1]
+        codename = VERSION_TO_CODENAME.get(version, "unknown")
+        key = UbuntuRelease(version, codename)
+        if key not in prs_by_ubuntu_release:
+            logging.warning(
+                "PR #%d is into unsupported Ubuntu release %s (%s). Skipping.", pr.number, version, codename
+            )
+            continue
+        prs_by_ubuntu_release[key].add(pr)
+
+    # filter out releases with no PRs
+    prs_by_ubuntu_release = {k: v for k, v in prs_by_ubuntu_release.items() if len(v) > 0}
+
+    merge_bases_by_pr = get_merge_bases_by_pr(prs, args.jobs)
+    slices_in_head_by_pr, slices_in_base_by_pr = get_slices_by_pr(prs, merge_bases_by_pr, args.jobs)
+
     # Log some info
-    for ubuntu_release, prs in prs_by_ubuntu_release.items():
-        logging.info("Found %d open PRs into ubuntu-%s (%s)", len(prs), ubuntu_release[0], ubuntu_release[1])
-        for pr in prs:
+    for ubuntu_release, prs_in_release in prs_by_ubuntu_release.items():
+        logging.info("Found %d open PRs into %s", len(prs_in_release), ubuntu_release)
+        for pr in prs_in_release:
             logging.info(
                 "  #%d: %s (%d slices in head, %d slices in merge base)",
                 pr.number,
@@ -415,45 +530,59 @@ def main(args: argparse.Namespace) -> None:
                 len(slices_in_base_by_pr.get(pr, set())),
             )
 
-    # These PRs will be skipped in all further processing
-    prs_to_skip: set[PR] = set()
+    new_slices_by_pr: dict[PR, set[str]] = {}
+    for pr in prs:
+        slices_in_head = slices_in_head_by_pr.get(pr, set())
+        slices_in_base = slices_in_base_by_pr.get(pr, set())
+        new_slices = slices_in_head - slices_in_base
+        removed_sliced = slices_in_base - slices_in_head
+        if removed_sliced and logging.getLogger().isEnabledFor(logging.WARNING):
+            slices_string = ", ".join(sorted(removed_sliced))
+            slices_string = slices_string if len(slices_string) < 100 else slices_string[:97] + "..."
+            logging.warning("PR #%d removed %d slices: %s", pr.number, len(removed_sliced), slices_string)
+        if new_slices:
+            new_slices_by_pr[pr] = new_slices
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                slices_string = ", ".join(sorted(new_slices))
+                slices_string = slices_string if len(slices_string) < 100 else slices_string[:97] + "..."
+                logging.debug("PR #%d introduces %d new slices: %s", pr.number, len(new_slices), slices_string)
 
-    for ubuntu_release, prs in prs_by_ubuntu_release.items():
-        logging.info("Found %d open PRs into ubuntu-%s (%s)", len(prs), ubuntu_release[0], ubuntu_release[1])
-        for pr in prs:
-            slices_in_head = slices_in_head_by_pr.get(pr, set())
-            slices_in_base = slices_in_base_by_pr.get(pr, set())
-            if len(slices_in_head) < len(slices_in_base):
-                prs_to_skip.add(pr)
+    results_by_pr: dict[PR, dict[UbuntuRelease, set[PR | None]]] = get_results_by_pr(
+        prs_by_ubuntu_release, new_slices_by_pr
+    )
+
+    for pr, results_by_future in results_by_pr.items():
+        for future_release, results in results_by_future.items():
+            if not results:
                 logging.warning(
-                    "Skipping PR #%d as it has fewer slices in head (%d) than in base (%d). Possible slice removal!",
+                    "PR #%d into %s: No PRs found into future release %s.",
                     pr.number,
-                    len(slices_in_head),
-                    len(slices_in_base),
+                    pr.base.ref,
+                    future_release,
+                )
+            elif None in results:
+                logging.info(
+                    "PR #%d into %s has no new slices, so it's OK for future release %s.",
+                    pr.number,
+                    pr.base.ref,
+                    future_release,
+                )
+            else:
+                _results: set[PR] = results  # type: ignore
+                logging.info(
+                    "PR #%d into %s is forward-ported to future release %s by %d PR(s) (%s).",
+                    pr.number,
+                    pr.base.ref,
+                    future_release,
+                    len(results),
+                    ", ".join(f"#{p.number}" for p in _results),
                 )
 
-    # for ubuntu_release, prs in prs_by_ubuntu_release.items():
-    #     future_releases = [r for r in ubuntu_releases if r > ubuntu_release]
-    #     for future_release in future_releases:
-    #         prs_into_future_release = prs_by_ubuntu_release.get(future_release, set())
-    #         if not prs_into_future_release:
-    #             continue
-    #         for pr in prs:
-    #             slices = slices_by_pr.get(pr, set())
-    #             for future_pr in prs_into_future_release:
-    #                 future_slices = slices_by_pr.get(future_pr, set())
-    #                 missing_slices = slices - future_slices
-
-    # for ubuntu_release, prs in prs_by_ubuntu_release.items():
-    #     logging.info("Ubuntu release: %s (%s)", ubuntu_release[0], ubuntu_release[1])
-    # for pr in prs:
-    #     slices = slices_by_pr.get(pr, set())
-    #     logging.info("  PR #%d: %s (%d slices)", pr.number, pr.title, len(slices))
-    #     for slice in sorted(slices):
-    #         logging.info("    - %s", slice)
+    # make sure we didn't drop any PRs
+    all_prs_in_results = set(results_by_pr.keys())
+    assert all_prs_in_results == prs, "Some PRs were dropped from the results."
 
     raise NotImplementedError("Main logic not implemented yet.")
-    # print(ubuntu_releases)
 
 
 ## BOILERPLATE #################################################################
