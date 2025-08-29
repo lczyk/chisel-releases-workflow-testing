@@ -118,7 +118,7 @@ _VERSION_TO_CODENAME = {r.version: r.codename for r in KNOWN_RELEASES}
 
 DISTS_URL = "https://archive.ubuntu.com/ubuntu/dists"
 
-CHISEL_RELEASES_URL = "https://github.com/canonical/chisel-releases"
+CHISEL_RELEASES_URL = os.environ.get("CHISEL_RELEASES_URL", "https://github.com/canonical/chisel-releases")
 
 
 ## LIB #########################################################################
