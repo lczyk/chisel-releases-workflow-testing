@@ -181,7 +181,7 @@ def handle_code(code: int, url: str) -> None:
             raise Exception(f"Access forbidden to '{url}'.")
     if code == 401:
         if "github.com" in url:
-            raise Exception(f"Unauthorized access to '{url}'. Maybe bad creds? Check GITHUB_TOKEN.")
+            raise Exception(f"Unauthorized access to '{url}'. Maybe bad credentials? Check GITHUB_TOKEN.")
         else:
             raise Exception(f"Unauthorized access to '{url}'.")
     raise Exception(f"Failed to fetch '{url}'. HTTP status code: {code}")
@@ -201,6 +201,7 @@ def CatchTime() -> Iterator[Callable[[], float]]:
 ## IMPL ########################################################################
 
 
+# spell-checker: ignore devel
 class DistsParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -870,6 +871,7 @@ def main(args: argparse.Namespace) -> None:
 
     # Print to stdout. Make sure we work with pipes.
     # https://docs.python.org/3/library/signal.html#note-on-sigpipe
+    # spellchecker: ignore WRONLY
     try:
         print(formatter.format())
         sys.stdout.flush()
