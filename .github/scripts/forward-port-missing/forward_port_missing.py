@@ -14,13 +14,13 @@ import logging
 import os
 import sys
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from functools import total_ordering
 from html.parser import HTMLParser
 from itertools import product
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 __version__ = "0.0.8"
 __author__ = "Marcin Konowalczyk"
@@ -521,117 +521,6 @@ class Comparison:
         return self.slices.intersection(self.slices_future)
 
 
-# class SliceComparisonResult:
-#     """A set of comparisons of of one PR with other PRs into future releases."""
-
-#     pr: PR
-#     slices: set[str]
-
-#     # PRs which forward-port all new slices
-#     _yes: dict[PR, set[str]]
-
-#     # PRs which do not forward-port all new slices
-#     _no: dict[PR, set[str]]
-
-#     # Discontinued slices keyed by UbuntuRelease in which they are discontinued
-#     _discontinued_slices: dict[UbuntuRelease, set[str]]
-
-#     # # PRs which do not forward-port all new slices, but the missing slices were discontinued
-#     # _discontinued: dict[PR, set[str]]
-
-#     @property
-#     def ubuntu_release(self) -> UbuntuRelease:
-#         return self.pr.ubuntu_release
-
-#     def __init__(self, pr: PR, slices: set[str]) -> None:
-#         self.pr = pr
-#         self.slices = slices
-#         self._yes = {}
-#         self._no = {}
-#         # ---
-#         self._discontinued_slices = {}
-#         # self._discontinued = {}
-
-#     def __bool__(self) -> bool:
-#         return bool(self._yes)
-
-#     def compare_with(self, pr: PR, slices: set[str]) -> None:
-#         if pr.ubuntu_release <= self.ubuntu_release:
-#             raise ValueError("Can only compare with PRs into future releases.")
-#         if self.slices.issubset(slices):
-#             self.is_forward_ported = True
-#             self._yes[pr] = slices
-#         else:
-#             self._no[pr] = slices
-
-#     def __repr__(self) -> str:
-#         return (
-#             f"SliceComparisonResult(pr=#{self.pr.number}, "
-#             f"slices={len(self.slices)}, "
-#             f"comparisons={len(self._yes) + len(self._no)}, "
-#             f"is_forward_ported={self.is_forward_ported}, "
-#         )
-
-#     @property
-#     def has_forward_ports(self) -> bool:
-#         return bool(self._yes)
-
-#     def add_discontinued(self, ubuntu_release: UbuntuRelease, slices: set[str]) -> None:
-#         if ubuntu_release <= self.ubuntu_release:
-#             raise ValueError("Can only add discontinued slices for future releases.")
-#         self._discontinued_slices[ubuntu_release] = slices
-
-#     def digest(self) -> tuple[list[PR], list[PR]]:
-#         forward_ports: list[PR] = list(sorted(self._yes.keys()))
-#         missing_forward_ports: list[PR] = list(sorted(self._no.keys()))
-#         if not missing_forward_ports:
-#             # No missing forward ports. We're done
-#             return forward_ports, missing_forward_ports
-
-#         # Some forward ports are missing.
-#         # But what if they're missing because the slices were discontinued?
-
-#         if not self._discontinued_slices:
-#             # No discontinued slices known. We're done.
-#             return forward_ports, missing_forward_ports
-
-#         # _missing_forward_ports: list[PR] = []
-#         for pr, slices in self._no.items():
-#             missing_slices = self.slices - slices
-#             assert missing_slices, "Expected some missing slices."
-
-#             # Check if the reason they are missing is that they were discontinued
-#             discontinued_slices = self._discontinued_slices.get(pr.ubuntu_release, set())
-#             if not discontinued_slices:
-#                 continue
-
-#             if missing_slices.issubset(discontinued_slices):
-#                 logging.debug(
-#                     "Comparing PR #%d into %s with PR #%d into %s: missing slices %s were discontinued.",
-#                     self.pr.number,
-#                     self.ubuntu_release,
-#                     pr.number,
-#                     pr.ubuntu_release,
-#                     ", ".join(sorted(missing_slices)),
-#                 )
-#                 # self._yes[pr] = slices
-#                 forward_ports.append(pr)
-#                 missing_forward_ports.remove(pr)
-#                 # self._discontinued[pr] = missing_slices
-#         return forward_ports, missing_forward_ports
-
-#         # return {
-#         #     "pr": self.pr.number,
-#         #     "slices": sorted(self.slices),
-#         #     "has_forward_ports": self.has_forward_ports,
-#         #     "forward_ports": {pr.number: sorted(slices) for pr, slices in self._yes.items()},
-#         #     "missing_forward_ports": {pr.number: sorted(slices) for pr, slices in self._no.items()},
-#         #     "discontinued_slices": {
-#         #         str(ubuntu_release): sorted(slices) for ubuntu_release, slices in self._discontinued_slices.items()
-#         #     },
-#         # }
-
-
 def get_comparisons(
     prs_by_ubuntu_release: dict[UbuntuRelease, frozenset[PR]],
     new_slices_by_pr: dict[PR, frozenset[str]],
@@ -781,8 +670,8 @@ def get_package_content(release: UbuntuRelease, component: str, repo: str) -> se
     return set(m.group(1) for m in package_re.finditer(content))
 
 
+# we don't own the apis we call so, during development, its only polite to cache
 if os.environ.get("USE_MEMORY", "0") in ("1", "true", "True", "TRUE"):
-    # we don't own the apis we call so, during development, its only polite to cache
     from joblib import Memory
 
     memory = Memory(".cache-geturl", verbose=0)
@@ -812,6 +701,71 @@ def group_prs_by_ubuntu_release(
     prs_by_ubuntu_release = {k: v for k, v in prs_by_ubuntu_release.items() if len(v) > 0}
 
     return prs_by_ubuntu_release
+
+
+def add_discontinued_slices(
+    grouped_comparisons: Mapping[PR, Mapping[UbuntuRelease, frozenset[Comparison]]],
+    jobs: int | None = 1,
+) -> None:
+    # if we have a bunch of PRs with missing forward-ports, they *might* be
+    # missing because the package is just not in the newer release.
+    # NOTE: we don't need to fetch the packages for all releases, just
+    #       for the *future* releases that are missing forward-ports.
+
+    prs_with_no_forward_ports: dict[PR, list[UbuntuRelease]] = {}
+    for pr, comparisons_by_future in grouped_comparisons.items():
+        for future_release, comparisons in comparisons_by_future.items():
+            for comparison in comparisons:
+                if comparison.missing_slices():
+                    prs_with_no_forward_ports.setdefault(pr, []).append(future_release)
+
+    if not prs_with_no_forward_ports:
+        return
+
+    releases_to_fetch: set[UbuntuRelease] = set()
+    for future_releases in prs_with_no_forward_ports.values():
+        for future_release in future_releases:
+            releases_to_fetch.add(future_release)
+
+    # Sanity check. If we have gotten got here, we should have at least one release to fetch.
+    assert releases_to_fetch, "Expected at least one release to fetch packages for."
+    packages_by_release = get_packages_by_release(releases_to_fetch, jobs)
+
+    if logging.getLogger().isEnabledFor(logging.DEBUG):
+        for release, packages in packages_by_release.items():
+            logging.debug("Release %s has %d packages.", release, len(packages))
+
+    for pr, results_by_future in grouped_comparisons.items():
+        for future_release, comparisons in results_by_future.items():
+            packages = packages_by_release.get(future_release, set())
+            if not packages:
+                logging.debug(
+                    "PR #%d into %s: No packages found for future release %s.",
+                    pr.number,
+                    pr.base.ref,
+                    future_release,
+                )
+                continue
+            _comparison = next(iter(comparisons), None)
+            if not _comparison:
+                continue
+            discontinued_slices = _comparison.slices - packages
+            if not discontinued_slices:
+                continue
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                slices_string = ", ".join(sorted(discontinued_slices))
+                slices_string = slices_string if len(slices_string) < 100 else slices_string[:97] + "..."
+                logging.debug(
+                    "Adding %d discontinued slices for PR #%d into %s for future release %s: %s",
+                    len(discontinued_slices),
+                    pr.number,
+                    pr.base.ref,
+                    future_release,
+                    slices_string,
+                )
+
+            for comparison in comparisons:
+                comparison.discontinued_slices = frozenset(discontinued_slices)
 
 
 ## MAIN ########################################################################
@@ -885,77 +839,7 @@ def main(args: argparse.Namespace) -> None:
 
     grouped_comparisons = get_grouped_comparisons(prs_by_ubuntu_release, new_slices_by_pr)
 
-    prs_with_no_forward_ports: dict[PR, list[UbuntuRelease]] = {}
-    for pr, comparisons_by_future in grouped_comparisons.items():
-        for future_release, comparisons in comparisons_by_future.items():
-            for comparison in comparisons:
-                if comparison.missing_slices():
-                    prs_with_no_forward_ports.setdefault(pr, []).append(future_release)
-
-    if prs_with_no_forward_ports and logging.getLogger().isEnabledFor(logging.WARNING):
-        logging.warning(
-            "Found %d PRs with missing forward-ports: %s",
-            len(prs_with_no_forward_ports),
-            ", ".join(f"#{pr.number}" for pr in sorted(prs_with_no_forward_ports)),
-        )
-
-    if prs_with_no_forward_ports:
-        # if we have a bunch of PRs with missing forward-ports, they *might* be
-        # missing because the package is just not in the newer release.
-        # NOTE: we don't need to fetch the packages for all releases, just
-        #       for the *future* releases that are missing forward-ports.
-
-        releases_to_fetch: set[UbuntuRelease] = set()
-        for future_releases in prs_with_no_forward_ports.values():
-            for future_release in future_releases:
-                releases_to_fetch.add(future_release)
-
-        # Sanity check. If we have gotten got here, we should have at least one release to fetch.
-        assert releases_to_fetch, "Expected at least one release to fetch packages for."
-        packages_by_release = get_packages_by_release(releases_to_fetch, args.jobs)
-
-        if logging.getLogger().isEnabledFor(logging.DEBUG):
-            for release, packages in packages_by_release.items():
-                logging.debug("Release %s has %d packages.", release, len(packages))
-
-        for pr, results_by_future in grouped_comparisons.items():
-            _slices = set(new_slices_by_pr.get(pr, set()))
-            for future_release, comparisons in results_by_future.items():
-                packages = packages_by_release.get(future_release, set())
-                if not packages:
-                    logging.debug(
-                        "PR #%d into %s: No packages found for future release %s.",
-                        pr.number,
-                        pr.base.ref,
-                        future_release,
-                    )
-                    continue
-                discontinued_slices = _slices - packages
-                if not discontinued_slices:
-                    continue
-                if logging.getLogger().isEnabledFor(logging.DEBUG):
-                    slices_string = ", ".join(sorted(discontinued_slices))
-                    slices_string = slices_string if len(slices_string) < 100 else slices_string[:97] + "..."
-                    logging.debug(
-                        "Adding %d discontinued slices for PR #%d into %s for future release %s: %s",
-                        len(discontinued_slices),
-                        pr.number,
-                        pr.base.ref,
-                        future_release,
-                        slices_string,
-                    )
-
-                for comparison in comparisons:
-                    comparison.discontinued_slices = frozenset(discontinued_slices)
-
-    # # TEMP OUTPUT
-    # for pr, results_by_future in grouped_comparisons.items():
-    #     for future_release, comparisons in results_by_future.items():
-    #         forward_ports = [c.pr_future for c in comparisons if c.is_forward_ported()]
-    #         missing_forward_ports = [c.pr_future for c in comparisons if not c.is_forward_ported()]
-    #         print(f"#{pr.number}", pr.base.ref, " -> ", future_release)
-    #         print("  has forward ports: ", ", ".join(f"#{p.number}" for p in forward_ports))
-    #         print("  missing forward ports: ", ", ".join(f"#{p.number}" for p in missing_forward_ports))
+    add_discontinued_slices(grouped_comparisons, args.jobs)
 
     # make sure we didn't drop any PRs
     all_prs_in_results: set[PR] = set()
@@ -975,7 +859,8 @@ def main(args: argparse.Namespace) -> None:
             )
         raise Exception("Some PRs are missing in the results.")
 
-    formatter: Formatter
+    # Output
+    formatter: JSONOutputFormatter | TextOutputFormatter
     if args.format == "json":
         formatter = JSONOutputFormatter(grouped_comparisons, add_extra_info=False)
     else:
@@ -988,14 +873,6 @@ def main(args: argparse.Namespace) -> None:
         # Handle broken pipe (e.g. when piping to 'head' and it exits early)
         sys.stderr.close()
         sys.exit(1)
-
-
-from collections.abc import Iterable
-from typing import Any, Protocol
-
-
-class Formatter(Protocol):
-    def format(self) -> str: ...
 
 
 def forward_porting_status(
@@ -1049,6 +926,7 @@ class JSONOutputFormatter:
                 forward_port_numbers = sorted([c.pr_future.number for c in forward_ports])
                 output_pr["forward_ports"]["ubuntu-" + future_release.version] = forward_port_numbers
                 if self.add_extra_info:
+                    # Add only the interesting comparisons -- those with some overlap or missing slices
                     cmp = []
                     for c in comparisons:
                         missing = c.missing_slices()
