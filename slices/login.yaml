@@ -7,13 +7,11 @@ slices:
   bins:
     essential:
       - libaudit1_libs
-      - libbsd0_libs
       - libc6_libs
       - libcrypt1_libs
       - libpam-modules_libs
       - libpam-runtime_config
       - libpam0g_libs
-      - libsystemd0_libs
       - login_config
     contents:
       /usr/bin/login:
@@ -23,7 +21,6 @@ slices:
 
   config:
     contents:
-      /etc/login.defs:
       /etc/pam.d/login:
 
   copyright:
