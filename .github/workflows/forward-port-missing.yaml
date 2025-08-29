@@ -69,7 +69,9 @@ jobs:
           ./forward_port_missing.py --log-level=debug -j=-1 --format=json 1> results.json
           cat results.json
 
-      - name: "Apply labels"
+      - env:
+          GITHUB_TOKEN: ${{ secrets.ROCKSBOT_PR_TOKEN }}
+        name: "Apply labels"
         run: |
           ln -s "${{ env.files_main }}/.github/scripts/forward-port-missing/apply_pr_labels.sh" .
           cat results.json | ./apply_pr_labels.sh
