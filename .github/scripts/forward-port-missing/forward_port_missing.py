@@ -22,10 +22,11 @@ from html.parser import HTMLParser
 from itertools import product
 from typing import TYPE_CHECKING, Any, Callable
 
-__version__ = "0.0.11"
+__version__ = "0.0.12"
 __author__ = "Marcin Konowalczyk"
 
 __changelog__ = [
+    ("0.0.12", "fix more grouping bugs", "@lczyk"),
     ("0.0.11", "grouping bug + handle non-ascii in titles", "@lczyk"),
     ("0.0.10", "print the fp label status", "@lczyk"),
     ("0.0.9", "fix crash on prs with no new slices", "@lczyk"),
@@ -571,14 +572,10 @@ class Comparison:
 def get_comparisons(
     prs_by_ubuntu_release: Mapping[UbuntuRelease, frozenset[PR]],
     new_slices_by_pr: Mapping[PR, frozenset[str]],
-    all_ubuntu_releases: Iterable[UbuntuRelease],
 ) -> frozenset[Comparison]:
     prs: set[PR] = set()
     for prs_in_release in prs_by_ubuntu_release.values():
         prs.update(prs_in_release)
-
-    # ubuntu_releases = sorted(prs_by_ubuntu_release.keys())
-    # print(prs_by_ubuntu_release)
 
     # For each PR we have a mapping from ubuntu release to a set of PRs that
     # forward-port the new slices to that release. An empty set means no
@@ -586,7 +583,7 @@ def get_comparisons(
     comparisons: set[Comparison] = set()
 
     for ubuntu_release, prs_in_release in prs_by_ubuntu_release.items():
-        future_releases = [r for r in all_ubuntu_releases if r > ubuntu_release]
+        future_releases = [r for r in prs_by_ubuntu_release if r > ubuntu_release]
         if not future_releases:
             logging.debug(
                 "No future releases for %s. Skipping all %d PRs into it.", ubuntu_release, len(prs_in_release)
@@ -618,9 +615,8 @@ def get_comparisons(
 def get_grouped_comparisons(
     prs_by_ubuntu_release: Mapping[UbuntuRelease, frozenset[PR]],
     new_slices_by_pr: Mapping[PR, frozenset[str]],
-    all_ubuntu_releases: Iterable[UbuntuRelease],
 ) -> Mapping[PR, Mapping[UbuntuRelease, frozenset[Comparison]]]:
-    comparisons = get_comparisons(prs_by_ubuntu_release, new_slices_by_pr, all_ubuntu_releases)
+    comparisons = get_comparisons(prs_by_ubuntu_release, new_slices_by_pr)
 
     # For convenience we group the comparisons by the PR in the current release, and then by the future release.
     grouped_comparisons: dict[PR, dict[UbuntuRelease, set[Comparison]]] = {}
@@ -640,6 +636,13 @@ def get_grouped_comparisons(
             if pr not in grouped_comparisons:
                 grouped_comparisons[pr] = {}
 
+    # For each of the dicts in grouped_comparisons, we want all of the future releases, even if there are no comparisons
+    for pr, comparisons_by_future_release in grouped_comparisons.items():
+        ubuntu_release = pr.ubuntu_release
+        future_releases = [r for r in prs_by_ubuntu_release if r > ubuntu_release]
+        for future_release in future_releases:
+            if future_release not in comparisons_by_future_release:
+                comparisons_by_future_release[future_release] = set()
     return {
         pr: {r: frozenset(comparison) for r, comparison in future_releases.items()}
         for pr, future_releases in grouped_comparisons.items()
@@ -757,7 +760,12 @@ def group_prs_by_ubuntu_release(
     }
 
     # filter out releases with no PRs
-    prs_by_ubuntu_release = {k: v for k, v in prs_by_ubuntu_release.items() if len(v) > 0}
+    # prs_by_ubuntu_release = {k: v for k, v in prs_by_ubuntu_release.items() if len(v) > 0}
+
+    # Make sure we have all the ubuntu_releases as keys, even if they have no PRs
+    for ubuntu_release in ubuntu_releases:
+        if ubuntu_release not in prs_by_ubuntu_release:
+            prs_by_ubuntu_release[ubuntu_release] = frozenset()
 
     return prs_by_ubuntu_release
 
@@ -885,16 +893,16 @@ def main(args: argparse.Namespace) -> None:
 
     del slices_in_head_by_pr, slices_in_base_by_pr
 
-    grouped_comparisons = get_grouped_comparisons(prs_by_ubuntu_release, new_slices_by_pr, ubuntu_releases)
+    grouped_comparisons = get_grouped_comparisons(prs_by_ubuntu_release, new_slices_by_pr)
 
     add_discontinued_slices(grouped_comparisons, args.jobs)
 
     # Output
     formatter: JSONOutputFormatter | TextOutputFormatter
     if args.format == "json":
-        formatter = JSONOutputFormatter(grouped_comparisons, add_extra_info=False)
+        formatter = JSONOutputFormatter(grouped_comparisons, new_slices_by_pr, add_extra_info=False)
     else:
-        formatter = TextOutputFormatter(grouped_comparisons)
+        formatter = TextOutputFormatter(grouped_comparisons, new_slices_by_pr)
 
     # Print to stdout. Make sure we work with pipes.
     # https://docs.python.org/3/library/signal.html#note-on-sigpipe
@@ -910,9 +918,14 @@ def main(args: argparse.Namespace) -> None:
 
 
 def forward_porting_status(
+    pr: PR,
+    slices: frozenset[str],
     comparisons_by_future_release: Mapping[UbuntuRelease, Iterable[Comparison]],
 ) -> bool:
     """Each ubuntu release must have at least one comparison with no missing slices."""
+
+    if not slices:
+        return True
 
     for comparisons in comparisons_by_future_release.values():
         if not any(c.is_forward_ported() for c in comparisons):
@@ -924,9 +937,11 @@ class JSONOutputFormatter:
     def __init__(
         self,
         grouped_comparisons: Mapping[PR, Mapping[UbuntuRelease, frozenset[Comparison]]],
+        new_slices_by_pr: Mapping[PR, frozenset[str]],
         add_extra_info: bool = False,
     ) -> None:
         self.grouped_comparisons = grouped_comparisons
+        self.new_slices_by_pr = new_slices_by_pr
         self.add_extra_info = add_extra_info
 
     @staticmethod
@@ -943,7 +958,11 @@ class JSONOutputFormatter:
         output = []
         for pr, comparisons_by_future_release in sorted(self.grouped_comparisons.items()):
             output_pr: dict = JSONOutputFormatter.pr_to_dict(pr)
-            output_pr["forward_ported"] = forward_porting_status(comparisons_by_future_release)
+            output_pr["forward_ported"] = forward_porting_status(
+                pr,
+                self.new_slices_by_pr.get(pr, frozenset()),
+                comparisons_by_future_release,
+            )
             output_pr["label"] = pr.label
             output_pr["forward_ports"] = {}
             if self.add_extra_info:
@@ -990,22 +1009,19 @@ class TextOutputFormatter:
     def __init__(
         self,
         grouped_comparisons: Mapping[PR, Mapping[UbuntuRelease, frozenset[Comparison]]],
+        new_slices_by_pr: Mapping[PR, frozenset[str]],
     ) -> None:
         self.grouped_comparisons = grouped_comparisons
+        self.new_slices_by_pr = new_slices_by_pr
 
     def format(self) -> str:
         rows: list[str] = []
         for pr, comparisons_by_future_release in sorted(self.grouped_comparisons.items()):
-            forward_ports = [
-                c.pr_future.number
-                for comparisons in comparisons_by_future_release.values()
-                for c in comparisons
-                if c.is_forward_ported()
-            ]
-            forward_ports_str = ",".join(str(n) for n in sorted(forward_ports))
-            if not forward_ports_str:
-                forward_ports_str = "-1"
-
+            forward_ported = forward_porting_status(
+                pr,
+                self.new_slices_by_pr.get(pr, frozenset()),
+                comparisons_by_future_release,
+            )
             title = pr.title.replace("\n", "_").replace(" ", "_")
             title = "".join(c if 32 <= ord(c) <= 126 else "?" for c in title)
             if len(title) > 40:
@@ -1013,8 +1029,18 @@ class TextOutputFormatter:
             user = pr.user.replace("\n", "_").replace(" ", "_")
             if len(user) > 15:
                 user = user[:12] + "..."
+            fp_numbers = [
+                c.pr_future.number
+                for comparisons in comparisons_by_future_release.values()
+                for c in comparisons
+                if c.is_forward_ported()
+            ]
+            fp_numbers_str = ",".join(str(n) for n in sorted(fp_numbers))
+            if not fp_numbers_str:
+                fp_numbers_str = "-1"
             rows.append(
-                f"{pr.number:<4}  {int(pr.label):<1}  {pr.base.ref:<13}  {user:<15}  {title:<40}  {forward_ports_str}"
+                f"{pr.number:<4}  {int(forward_ported)}  {int(pr.label):<1}  "
+                f"{pr.base.ref:<13}  {user:<15}  {title:<40}  {fp_numbers_str}"
             )
 
         return "\n".join(rows)
