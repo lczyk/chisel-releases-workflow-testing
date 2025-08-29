@@ -86,23 +86,13 @@ function main() {
         if [ -n "$existing_comment" ]; then
             local existing_comment_id=$(echo "$existing_comment" | jq -r '.id')
             echo "  Updating existing comment (ID: $existing_comment_id)."
-            # GitHub CLI api
-# https://cli.github.com/manual/gh_api
-
-        # gh api \
-        #   --method PATCH \
-        #   -H "Accept: application/vnd.github+json" \
-        #   -H "X-GitHub-Api-Version: 2022-11-28" \
-        #   /repos/OWNER/REPO/issues/comments/COMMENT_ID \
-        #    -f 'body=Me too'
             local url="repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/issues/comments/$existing_comment_id"
-            echo "    URL: $url"
             _maybe_dry_run "gh api \
                 --method PATCH \
                 -H \"Accept: application/vnd.github+json\" \
                 -H \"X-GitHub-Api-Version: 2022-11-28\" \
                 $url \
-                -f 'body=$(cat "$msg_file" | sed "s/'/\"/g")'"
+                -f 'body=$(cat "$msg_file" | sed "s/'/\"/g")'" 1> /dev/null
         else
             echo "  Creating new comment."
             _maybe_dry_run "gh pr comment $number --body-file '$msg_file'"
