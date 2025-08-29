@@ -72,7 +72,7 @@ jobs:
       - name: "Apply labels"
         run: |
           ln -s "${{ env.files_main }}/.github/scripts/forward-port-missing/apply_pr_labels.sh" .
-          cat results.json | ./apply_pr_labels.sh --dry-run
+          cat results.json | ./apply_pr_labels.sh
 
 # Example output:
 # [
