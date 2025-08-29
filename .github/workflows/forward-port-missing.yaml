@@ -13,6 +13,8 @@ on:
   #   branches:
   #     - "main"
   # workflow_call:
+  # for now trigger only manually:
+  workflow_dispatch:
 
 # env:
 #   # The path to the script that checks for forward ports.
