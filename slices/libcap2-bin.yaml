@@ -1,0 +1,19 @@
+package: libcap2-bin
+
+essential:
+  - libcap2-bin_copyright
+
+slices:
+  bins:
+    essential:
+      - libc6_libs
+      - libcap2_libs
+    contents:
+      /sbin/capsh:
+      /sbin/getcap:
+      /sbin/getpcaps:
+      /sbin/setcap:
+
+  copyright:
+    contents:
+      /usr/share/doc/libcap2-bin/copyright:
