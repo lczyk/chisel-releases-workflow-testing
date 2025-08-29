@@ -1,0 +1,9 @@
+package: aardvark
+
+essential:
+  - aardvark_copyright
+
+slices:
+  copyright:
+    contents:
+      /usr/share/doc/aardvark/copyright:
