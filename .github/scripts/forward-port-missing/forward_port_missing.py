@@ -22,10 +22,11 @@ from html.parser import HTMLParser
 from itertools import product
 from typing import TYPE_CHECKING, Any, Callable
 
-__version__ = "0.0.10"
+__version__ = "0.0.11"
 __author__ = "Marcin Konowalczyk"
 
 __changelog__ = [
+    ("0.0.11", "grouping bug + handle non-ascii in titles", "@lczyk"),
     ("0.0.10", "print the fp label status", "@lczyk"),
     ("0.0.9", "fix crash on prs with no new slices", "@lczyk"),
     ("0.0.8", "output formatting + bugfixes", "@lczyk"),
@@ -568,14 +569,16 @@ class Comparison:
 
 
 def get_comparisons(
-    prs_by_ubuntu_release: dict[UbuntuRelease, frozenset[PR]],
-    new_slices_by_pr: dict[PR, frozenset[str]],
+    prs_by_ubuntu_release: Mapping[UbuntuRelease, frozenset[PR]],
+    new_slices_by_pr: Mapping[PR, frozenset[str]],
+    all_ubuntu_releases: Iterable[UbuntuRelease],
 ) -> frozenset[Comparison]:
     prs: set[PR] = set()
     for prs_in_release in prs_by_ubuntu_release.values():
         prs.update(prs_in_release)
 
-    ubuntu_releases = sorted(prs_by_ubuntu_release.keys())
+    # ubuntu_releases = sorted(prs_by_ubuntu_release.keys())
+    # print(prs_by_ubuntu_release)
 
     # For each PR we have a mapping from ubuntu release to a set of PRs that
     # forward-port the new slices to that release. An empty set means no
@@ -583,7 +586,7 @@ def get_comparisons(
     comparisons: set[Comparison] = set()
 
     for ubuntu_release, prs_in_release in prs_by_ubuntu_release.items():
-        future_releases = [r for r in ubuntu_releases if r > ubuntu_release]
+        future_releases = [r for r in all_ubuntu_releases if r > ubuntu_release]
         if not future_releases:
             logging.debug(
                 "No future releases for %s. Skipping all %d PRs into it.", ubuntu_release, len(prs_in_release)
@@ -613,10 +616,11 @@ def get_comparisons(
 
 
 def get_grouped_comparisons(
-    prs_by_ubuntu_release: dict[UbuntuRelease, frozenset[PR]],
-    new_slices_by_pr: dict[PR, frozenset[str]],
+    prs_by_ubuntu_release: Mapping[UbuntuRelease, frozenset[PR]],
+    new_slices_by_pr: Mapping[PR, frozenset[str]],
+    all_ubuntu_releases: Iterable[UbuntuRelease],
 ) -> Mapping[PR, Mapping[UbuntuRelease, frozenset[Comparison]]]:
-    comparisons = get_comparisons(prs_by_ubuntu_release, new_slices_by_pr)
+    comparisons = get_comparisons(prs_by_ubuntu_release, new_slices_by_pr, all_ubuntu_releases)
 
     # For convenience we group the comparisons by the PR in the current release, and then by the future release.
     grouped_comparisons: dict[PR, dict[UbuntuRelease, set[Comparison]]] = {}
@@ -628,6 +632,13 @@ def get_grouped_comparisons(
         if future_release not in grouped_comparisons[pr]:
             grouped_comparisons[pr][future_release] = set()
         grouped_comparisons[pr][future_release].add(comparison)
+
+    # We may not have all the PRs in the grouped_comparisons, since they may not have had any PRs to compare to.
+    # We need to add them with empty dicts.
+    for prs_in_release in prs_by_ubuntu_release.values():
+        for pr in prs_in_release:
+            if pr not in grouped_comparisons:
+                grouped_comparisons[pr] = {}
 
     return {
         pr: {r: frozenset(comparison) for r, comparison in future_releases.items()}
@@ -874,7 +885,7 @@ def main(args: argparse.Namespace) -> None:
 
     del slices_in_head_by_pr, slices_in_base_by_pr
 
-    grouped_comparisons = get_grouped_comparisons(prs_by_ubuntu_release, new_slices_by_pr)
+    grouped_comparisons = get_grouped_comparisons(prs_by_ubuntu_release, new_slices_by_pr, ubuntu_releases)
 
     add_discontinued_slices(grouped_comparisons, args.jobs)
 
@@ -996,6 +1007,7 @@ class TextOutputFormatter:
                 forward_ports_str = "-1"
 
             title = pr.title.replace("\n", "_").replace(" ", "_")
+            title = "".join(c if 32 <= ord(c) <= 126 else "?" for c in title)
             if len(title) > 40:
                 title = title[:37] + "..."
             user = pr.user.replace("\n", "_").replace(" ", "_")

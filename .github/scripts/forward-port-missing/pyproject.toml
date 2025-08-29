@@ -1,7 +1,7 @@
 [project]
 name = "forward-port-missing"
 description = "Add your description here"
-version = "0.0.10"
+version = "0.0.11"
 authors = [{ name = "Marcin Konowalczyk", email = "marcin.konowalczyk@canonical.com" }]
 readme = "README.md"
 requires-python = ">=3.9"
@@ -94,6 +94,7 @@ addopts = [
 [dependency-groups]
 dev = [
     "colorlog>=6.9.0",
+    "joblib>=1.5.2",
     "mypy>=1.15.0",
     "packaging>=25.0",
     "pytest>=8.3.5",
