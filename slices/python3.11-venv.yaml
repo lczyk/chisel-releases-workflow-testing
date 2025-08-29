@@ -1,0 +1,20 @@
+package: python3.11-venv
+
+essential:
+  - python3.11-venv_copyright
+
+slices:
+  ensurepip:
+    essential:
+      - python3-distutils_python3-11
+      - python3-pip-whl_wheels
+      - python3-setuptools-whl_wheels
+      - python3.11_standard
+    contents:
+      /usr/lib/python3.11/ensurepip/*.py:
+
+  copyright:
+    essential:
+      - python3.11_copyright
+    contents:
+      /usr/share/doc/python3.11-venv:
