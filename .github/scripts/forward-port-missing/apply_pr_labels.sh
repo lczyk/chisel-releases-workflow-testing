@@ -82,20 +82,20 @@ function main() {
         local _jq='.[] | select(.user.login == "github-actions[bot]") | select(.body | test("'$header'"))'
         local existing_comment=$(echo "$comments" | jq "$_jq" || echo "")
 
-        echo $existing_comment | jq .
+        # echo $existing_comment | jq .
         if [ -n "$existing_comment" ]; then
             local existing_comment_id=$(echo "$existing_comment" | jq -r '.id')
             echo "  Updating existing comment (ID: $existing_comment_id)."
-            # # GitHub CLI api
-            # # https://cli.github.com/manual/gh_api
+            # GitHub CLI api
+# https://cli.github.com/manual/gh_api
 
-            # gh api \
-            # --method PATCH \
-            # -H "Accept: application/vnd.github+json" \
-            # -H "X-GitHub-Api-Version: 2022-11-28" \
-            # /repos/OWNER/REPO/issues/comments/COMMENT_ID \
-            # -f 'body=Me too'
-            local url="https://api.github.com/repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/issues/comments/$existing_comment_id"
+        # gh api \
+        #   --method PATCH \
+        #   -H "Accept: application/vnd.github+json" \
+        #   -H "X-GitHub-Api-Version: 2022-11-28" \
+        #   /repos/OWNER/REPO/issues/comments/COMMENT_ID \
+        #    -f 'body=Me too'
+            local url="repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/issues/comments/$existing_comment_id"
             echo "    URL: $url"
             _maybe_dry_run "gh api \
                 --method PATCH \
