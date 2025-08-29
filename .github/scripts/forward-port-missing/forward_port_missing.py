@@ -22,10 +22,11 @@ from html.parser import HTMLParser
 from itertools import product
 from typing import TYPE_CHECKING, Any, Callable
 
-__version__ = "0.0.8"
+__version__ = "0.0.9"
 __author__ = "Marcin Konowalczyk"
 
 __changelog__ = [
+    ("0.0.9", "fix crash on prs with no new slices", "@lczyk"),
     ("0.0.8", "output formatting + bugfixes", "@lczyk"),
     ("0.0.7", "fetching package lists for FP missing releases", "@lczyk"),
     ("0.0.6", "main forward-porting logic implemented", "@lczyk"),
@@ -472,6 +473,34 @@ def get_slices_by_pr(
     return slices_in_head_by_pr, slices_in_base_by_pr
 
 
+def group_new_slices_by_pr(
+    slices_in_head_by_pr: dict[PR, set[str]],
+    slices_in_base_by_pr: dict[PR, set[str]],
+) -> dict[PR, frozenset[str]]:
+    prs: set[PR] = set(slices_in_head_by_pr.keys())
+    if set(slices_in_base_by_pr.keys()) != prs:
+        raise ValueError("slices_in_head_by_pr and slices_in_base_by_pr must have the same keys.")
+    new_slices_by_pr: dict[PR, frozenset[str]] = {}
+    for pr in sorted(prs):
+        slices_in_head = slices_in_head_by_pr.get(pr, set())
+        slices_in_base = slices_in_base_by_pr.get(pr, set())
+        new_slices = slices_in_head - slices_in_base
+        removed_sliced = slices_in_base - slices_in_head
+        if removed_sliced and logging.getLogger().isEnabledFor(logging.WARNING):
+            slices_string = ", ".join(sorted(removed_sliced))
+            slices_string = slices_string if len(slices_string) < 100 else slices_string[:97] + "..."
+            logging.warning("PR #%d removed %d slices: %s", pr.number, len(removed_sliced), slices_string)
+        if new_slices:
+            new_slices_by_pr[pr] = frozenset(new_slices)
+            if logging.getLogger().isEnabledFor(logging.DEBUG):
+                slices_string = ", ".join(sorted(new_slices))
+                slices_string = slices_string if len(slices_string) < 100 else slices_string[:97] + "..."
+                logging.debug("PR #%d introduces %d new slices: %s", pr.number, len(new_slices), slices_string)
+        else:
+            logging.debug("PR #%d introduces no new slices.", pr.number)
+    return new_slices_by_pr
+
+
 @dataclass(frozen=False, unsafe_hash=True)
 class Comparison:
     """A pair of PRs: one into a given release, and one into a future release."""
@@ -539,7 +568,9 @@ def get_comparisons(
     for ubuntu_release, prs_in_release in prs_by_ubuntu_release.items():
         future_releases = [r for r in ubuntu_releases if r > ubuntu_release]
         if not future_releases:
-            logging.debug("No future releases for %s. Skipping all PRs into it.", ubuntu_release)
+            logging.debug(
+                "No future releases for %s. Skipping all %d PRs into it.", ubuntu_release, len(prs_in_release)
+            )
             continue
 
         for pr in prs_in_release:
@@ -808,6 +839,8 @@ def main(args: argparse.Namespace) -> None:
     merge_bases_by_pr = get_merge_bases_by_pr(prs, args.jobs)
     slices_in_head_by_pr, slices_in_base_by_pr = get_slices_by_pr(prs, merge_bases_by_pr, args.jobs)
 
+    del prs, merge_bases_by_pr
+
     # Log some info
     for ubuntu_release, prs_in_release in prs_by_ubuntu_release.items():
         logging.info("Found %d open PRs into %s", len(prs_in_release), ubuntu_release)
@@ -820,44 +853,13 @@ def main(args: argparse.Namespace) -> None:
                 len(slices_in_base_by_pr.get(pr, set())),
             )
 
-    new_slices_by_pr: dict[PR, frozenset[str]] = {}
-    for pr in sorted(prs):
-        slices_in_head = slices_in_head_by_pr.get(pr, set())
-        slices_in_base = slices_in_base_by_pr.get(pr, set())
-        new_slices = slices_in_head - slices_in_base
-        removed_sliced = slices_in_base - slices_in_head
-        if removed_sliced and logging.getLogger().isEnabledFor(logging.WARNING):
-            slices_string = ", ".join(sorted(removed_sliced))
-            slices_string = slices_string if len(slices_string) < 100 else slices_string[:97] + "..."
-            logging.warning("PR #%d removed %d slices: %s", pr.number, len(removed_sliced), slices_string)
-        if new_slices:
-            new_slices_by_pr[pr] = frozenset(new_slices)
-            if logging.getLogger().isEnabledFor(logging.DEBUG):
-                slices_string = ", ".join(sorted(new_slices))
-                slices_string = slices_string if len(slices_string) < 100 else slices_string[:97] + "..."
-                logging.debug("PR #%d introduces %d new slices: %s", pr.number, len(new_slices), slices_string)
+    new_slices_by_pr = group_new_slices_by_pr(slices_in_head_by_pr, slices_in_base_by_pr)
+
+    del slices_in_head_by_pr, slices_in_base_by_pr
 
     grouped_comparisons = get_grouped_comparisons(prs_by_ubuntu_release, new_slices_by_pr)
 
     add_discontinued_slices(grouped_comparisons, args.jobs)
-
-    # make sure we didn't drop any PRs
-    all_prs_in_results: set[PR] = set()
-    for results_by_future in grouped_comparisons.values():
-        for comparisons in results_by_future.values():
-            for comparison in comparisons:
-                all_prs_in_results.add(comparison.pr)
-                all_prs_in_results.add(comparison.pr_future)
-    if all_prs_in_results != prs:
-        missing_prs = prs - all_prs_in_results
-        additional_prs = all_prs_in_results - prs
-        logging.error("Some PRs are missing in the results: %s", ", ".join(f"#{pr.number}" for pr in missing_prs))
-        if additional_prs and logging.getLogger().isEnabledFor(logging.ERROR):
-            logging.error(
-                "Some additional PRs are in the results but not in the input: %s",
-                ", ".join(f"#{pr.number}" for pr in additional_prs),
-            )
-        raise Exception("Some PRs are missing in the results.")
 
     # Output
     formatter: JSONOutputFormatter | TextOutputFormatter
