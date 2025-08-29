@@ -25,28 +25,39 @@ _maybe_dry_run() {
     fi
 }
 
-jq -c '.[]' | while read -r pr; do
-    number=$(echo "$pr" | jq -r '.number')
-    title=$(echo "$pr" | jq -r '.title')
-    url=$(echo "$pr" | jq -r '.url')
-    base=$(echo "$pr" | jq -r '.base')
-    head=$(echo "$pr" | jq -r '.head')
-    forward_ported=$(echo "$pr" | jq -r '.forward_ported')
-    label=$(echo "$pr" | jq -r '.label')
-
-    echo "PR #$number: $title"
-    echo "  $url"
-    echo "  $head -> $base"
-    echo "  forward_ported: $forward_ported"
-    echo "  has label: $label"
-
-    if [ "$forward_ported" = false ] && [ "$label" = false ]; then
-        echo "  Adding the 'forward port missing' label."
-        _maybe_dry_run "gh pr edit $number --add-label \"forward port missing\""
-    elif [ "$forward_ported" = true ] && [ "$label" = true ]; then
-        echo "  Removing the 'forward port missing' label."
-        _maybe_dry_run "gh pr edit $number --remove-label \"forward port missing\""
-    else
-        echo "  No label changes needed."
+function main() {
+    if [ "$dry_run" = false ]; then
+        test -z "$GITHUB_TOKEN" && { echo "GITHUB_TOKEN is not set. Aborting."; exit 1; }
+        command -v gh >/dev/null 2>&1 || { echo >&2 "gh is required but it's not installed. Aborting."; exit 1; }
     fi
-done
+    command -v jq >/dev/null 2>&1 || { echo >&2 "jq is required but it's not installed. Aborting."; exit 1; }
+
+    jq -c '.[]' | while read -r pr; do
+        number=$(echo "$pr" | jq -r '.number')
+        title=$(echo "$pr" | jq -r '.title')
+        url=$(echo "$pr" | jq -r '.url')
+        base=$(echo "$pr" | jq -r '.base')
+        head=$(echo "$pr" | jq -r '.head')
+        forward_ported=$(echo "$pr" | jq -r '.forward_ported')
+        label=$(echo "$pr" | jq -r '.label')
+
+        echo "PR #$number: $title"
+        echo "  $head -> $base"
+        echo "  $url"
+        # echo "  forward_ported: $forward_ported"
+        # echo "  has label: $label"
+
+        if [ "$forward_ported" = false ] && [ "$label" = false ]; then
+            echo "  Adding the 'forward port missing' label."
+            _maybe_dry_run "gh pr edit $number --add-label \"forward port missing\""
+        elif [ "$forward_ported" = true ] && [ "$label" = true ]; then
+            echo "  Removing the 'forward port missing' label."
+            _maybe_dry_run "gh pr edit $number --remove-label \"forward port missing\""
+        else
+            echo "  No label changes needed."
+        fi
+    done
+}
+
+
+main

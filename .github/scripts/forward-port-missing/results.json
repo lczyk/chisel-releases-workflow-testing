@@ -1,0 +1,343 @@
+[
+  {
+    "number": 276,
+    "title": "feat(24.04): netplan.io and dependencies",
+    "url": "https://github.com/canonical/chisel-releases/pull/276",
+    "base": "ubuntu-24.04",
+    "head": "Meulengracht/chisel-releases/slices/netplan",
+    "forward_ported": false,
+    "label": true,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 301,
+    "title": "feat(24.04): add vim and vim-tiny slices",
+    "url": "https://github.com/canonical/chisel-releases/pull/301",
+    "base": "ubuntu-24.04",
+    "head": "linostar/chisel-releases/feat-24.04-vim",
+    "forward_ported": false,
+    "label": true,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 333,
+    "title": "feat(24.04): add gnutls-bin and dependencies",
+    "url": "https://github.com/canonical/chisel-releases/pull/333",
+    "base": "ubuntu-24.04",
+    "head": "Meulengracht/chisel-releases/slices/gnutls-bin",
+    "forward_ported": false,
+    "label": true,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 334,
+    "title": "feat(24.04): add bsdutils",
+    "url": "https://github.com/canonical/chisel-releases/pull/334",
+    "base": "ubuntu-24.04",
+    "head": "Meulengracht/chisel-releases/slices/bsdutils",
+    "forward_ported": false,
+    "label": true,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 335,
+    "title": "feat(24.04): add debianutils",
+    "url": "https://github.com/canonical/chisel-releases/pull/335",
+    "base": "ubuntu-24.04",
+    "head": "Meulengracht/chisel-releases/slices/debianutils",
+    "forward_ported": false,
+    "label": true,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 342,
+    "title": "feat(24.04): add finalrd and add bins slice to libc-bin",
+    "url": "https://github.com/canonical/chisel-releases/pull/342",
+    "base": "ubuntu-24.04",
+    "head": "Meulengracht/chisel-releases/slices/finalrd",
+    "forward_ported": false,
+    "label": true,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 378,
+    "title": "feat(24.04): add udev slice",
+    "url": "https://github.com/canonical/chisel-releases/pull/378",
+    "base": "ubuntu-24.04",
+    "head": "Meulengracht/chisel-releases/slices/udev",
+    "forward_ported": false,
+    "label": true,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 477,
+    "title": "feat(24.04): add python3-pytest slices",
+    "url": "https://github.com/canonical/chisel-releases/pull/477",
+    "base": "ubuntu-24.04",
+    "head": "rebornplusplus/chisel-releases/feat/pytest",
+    "forward_ported": false,
+    "label": true,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 552,
+    "title": "feat(24.04): add SDFs for dlt-viewer and its dependencies",
+    "url": "https://github.com/canonical/chisel-releases/pull/552",
+    "base": "ubuntu-24.04",
+    "head": "eddiegrau/chisel-releases/ubuntu-24.04",
+    "forward_ported": false,
+    "label": true,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 561,
+    "title": "Add .NET 8 & 9 SDK chisel slice definitions for Ubuntu 25.04",
+    "url": "https://github.com/canonical/chisel-releases/pull/561",
+    "base": "ubuntu-25.04",
+    "head": "dviererbe/chisel-releases/ubuntu-25.04",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {}
+  },
+  {
+    "number": 563,
+    "title": "Add .NET 8 SDK chisel slice definitions for Ubuntu 24.04",
+    "url": "https://github.com/canonical/chisel-releases/pull/563",
+    "base": "ubuntu-24.04",
+    "head": "dviererbe/chisel-releases/ubuntu-24.04",
+    "forward_ported": false,
+    "label": false,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 581,
+    "title": "feat(24.04): add busybox-static slice",
+    "url": "https://github.com/canonical/chisel-releases/pull/581",
+    "base": "ubuntu-24.04",
+    "head": "endersonmaia/chisel-releases/24.04/add-busybox-static-slice",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {
+      "ubuntu-25.04": [
+        597
+      ]
+    }
+  },
+  {
+    "number": 590,
+    "title": "feat(24.04): add golang 1.22 for noble",
+    "url": "https://github.com/canonical/chisel-releases/pull/590",
+    "base": "ubuntu-24.04",
+    "head": "zhijie-yang/chisel-releases/ROCKS-2299/golang-24.04-simplified",
+    "forward_ported": false,
+    "label": false,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 592,
+    "title": "feat(24.04): add php slices",
+    "url": "https://github.com/canonical/chisel-releases/pull/592",
+    "base": "ubuntu-24.04",
+    "head": "alesancor1/chisel-releases/24.04/php",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {
+      "ubuntu-25.04": [
+        593
+      ]
+    }
+  },
+  {
+    "number": 593,
+    "title": "feat(25.04): add php slices",
+    "url": "https://github.com/canonical/chisel-releases/pull/593",
+    "base": "ubuntu-25.04",
+    "head": "alesancor1/chisel-releases/25.04/php",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {}
+  },
+  {
+    "number": 597,
+    "title": "feat(25.04): add busybox-static slice",
+    "url": "https://github.com/canonical/chisel-releases/pull/597",
+    "base": "ubuntu-25.04",
+    "head": "endersonmaia/chisel-releases/25.04/add-busybox-static-slice",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {}
+  },
+  {
+    "number": 598,
+    "title": "feat(25.04): add golang slices",
+    "url": "https://github.com/canonical/chisel-releases/pull/598",
+    "base": "ubuntu-25.04",
+    "head": "zhijie-yang/chisel-releases/ROCKS-2300/golang-25.04",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {}
+  },
+  {
+    "number": 601,
+    "title": "feat (24.04): add postgresql-client-16 slice + spread tests",
+    "url": "https://github.com/canonical/chisel-releases/pull/601",
+    "base": "ubuntu-24.04",
+    "head": "taurus-forever/chisel-releases/alutay/add_pg16_client",
+    "forward_ported": true,
+    "label": true,
+    "forward_ports": {
+      "ubuntu-25.04": [
+        561,
+        593,
+        597,
+        598,
+        609,
+        610,
+        618,
+        619,
+        620,
+        627
+      ]
+    }
+  },
+  {
+    "number": 603,
+    "title": "feat(24.04): add SONiC docker-database related slices",
+    "url": "https://github.com/canonical/chisel-releases/pull/603",
+    "base": "ubuntu-24.04",
+    "head": "jy5275/chisel-releases/ubuntu-24.04",
+    "forward_ported": false,
+    "label": false,
+    "forward_ports": {
+      "ubuntu-25.04": []
+    }
+  },
+  {
+    "number": 609,
+    "title": "feat(25.04): add SONiC docker-database related slices #603",
+    "url": "https://github.com/canonical/chisel-releases/pull/609",
+    "base": "ubuntu-25.04",
+    "head": "jy5275/chisel-releases/ubuntu-25.04",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {}
+  },
+  {
+    "number": 610,
+    "title": "feat(25.04): add rustc-1.84 slices",
+    "url": "https://github.com/canonical/chisel-releases/pull/610",
+    "base": "ubuntu-25.04",
+    "head": "lczyk/chisel-releases/ROCKS-2271/rust-1.84-25.04",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {}
+  },
+  {
+    "number": 618,
+    "title": "feat(25.04): add polkitd and dependencies",
+    "url": "https://github.com/canonical/chisel-releases/pull/618",
+    "base": "ubuntu-25.04",
+    "head": "Meulengracht/chisel-releases/slices-25/polkitd",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {}
+  },
+  {
+    "number": 619,
+    "title": "feat(25.04): add libcrack-runtime and its dependencies",
+    "url": "https://github.com/canonical/chisel-releases/pull/619",
+    "base": "ubuntu-25.04",
+    "head": "Meulengracht/chisel-releases/slices-25/cracklib",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {}
+  },
+  {
+    "number": 620,
+    "title": "feat(25.04): add dbus-user-session, libpam and additional dependencies",
+    "url": "https://github.com/canonical/chisel-releases/pull/620",
+    "base": "ubuntu-25.04",
+    "head": "Meulengracht/chisel-releases/slices-25/dbus-user-session",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {}
+  },
+  {
+    "number": 626,
+    "title": "feat(24.04) subslice coreutils for apache2",
+    "url": "https://github.com/canonical/chisel-releases/pull/626",
+    "base": "ubuntu-24.04",
+    "head": "norrisjeremy/chisel-releases/coreutils-for-apache2-24.04",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {
+      "ubuntu-25.04": [
+        561,
+        593,
+        597,
+        598,
+        609,
+        610,
+        618,
+        619,
+        620,
+        627
+      ]
+    }
+  },
+  {
+    "number": 627,
+    "title": "feat(25.04) subslice coreutils for apache2",
+    "url": "https://github.com/canonical/chisel-releases/pull/627",
+    "base": "ubuntu-25.04",
+    "head": "norrisjeremy/chisel-releases/coreutils-for-apache2-25.04",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {}
+  },
+  {
+    "number": 628,
+    "title": "chore(24.04): add test for dpkg and adjust deps",
+    "url": "https://github.com/canonical/chisel-releases/pull/628",
+    "base": "ubuntu-24.04",
+    "head": "zhijie-yang/chisel-releases/ROCKS-2299/update-apt-deps-24.04",
+    "forward_ported": true,
+    "label": false,
+    "forward_ports": {
+      "ubuntu-25.04": [
+        561,
+        593,
+        597,
+        598,
+        609,
+        610,
+        618,
+        619,
+        620,
+        627
+      ]
+    }
+  }
+]
