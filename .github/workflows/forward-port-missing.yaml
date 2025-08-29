@@ -65,5 +65,5 @@ jobs:
 
         name: "Check for forward port"
         run: |
-          ln -s "${{ env.files_main }}/.github/scripts/forward-port-missing/forward-port-missing.py" .
-          ./forward-port-missing.py --log-level=debug -j=-1 --format=json
+          ln -s "${{ env.files_main }}/.github/scripts/forward-port-missing/forward_port_missing.py" .
+          ./forward_port_missing.py --log-level=debug -j=-1 --format=json
