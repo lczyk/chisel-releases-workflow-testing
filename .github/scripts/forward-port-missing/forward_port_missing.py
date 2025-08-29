@@ -867,11 +867,14 @@ def main(args: argparse.Namespace) -> None:
         formatter = TextOutputFormatter(grouped_comparisons)
 
     # Print to stdout. Make sure we work with pipes.
+    # https://docs.python.org/3/library/signal.html#note-on-sigpipe
     try:
-        print(formatter.format(), flush=True)
+        print(formatter.format())
+        sys.stdout.flush()
     except BrokenPipeError:
-        # Handle broken pipe (e.g. when piping to 'head' and it exits early)
-        sys.stderr.close()
+        # Gracefully handle broken pipe when e.g. piping to head
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
         sys.exit(1)
 
 
