@@ -79,7 +79,7 @@ function main() {
         #     --jq "$jq" || echo ""
         # )
         # /repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/issues/$number/comments || echo "[]"
-        local url=$(repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/issues/$number/comments)
+        local url="repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/issues/$number/comments"
         local comments=$(
             gh api \
                 -H "Accept: application/vnd.github+json" \
