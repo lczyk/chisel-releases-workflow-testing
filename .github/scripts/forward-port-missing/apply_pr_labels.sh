@@ -92,7 +92,7 @@ function main() {
                 -H \"Accept: application/vnd.github+json\" \
                 -H \"X-GitHub-Api-Version: 2022-11-28\" \
                 $url \
-                -f 'body=$(cat "$msg_file" | sed "s/'/\"/g")'" 1> /dev/null
+                -f 'body=$(cat "$msg_file" | sed "s/'/\"/g")' &> /dev/null"
         else
             echo "  Creating new comment."
             _maybe_dry_run "gh pr comment $number --body-file '$msg_file'"
