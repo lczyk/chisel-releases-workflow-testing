@@ -86,7 +86,7 @@ function main() {
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 "$url" || echo "[]"
         )
-        echo "${comments}" | jq .
+        # echo "${comments}" | jq .
         local _jq='.[] | select(.author.login == "github-actions") | select(.body | test("'$header'"))'
         local existing_comment=$(echo "$comments" | jq "$_jq" || echo "")
 
