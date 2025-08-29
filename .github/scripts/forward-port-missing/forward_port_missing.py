@@ -22,10 +22,11 @@ from html.parser import HTMLParser
 from itertools import product
 from typing import TYPE_CHECKING, Any, Callable
 
-__version__ = "0.0.9"
+__version__ = "0.0.10"
 __author__ = "Marcin Konowalczyk"
 
 __changelog__ = [
+    ("0.0.10", "print the fp label status", "@lczyk"),
     ("0.0.9", "fix crash on prs with no new slices", "@lczyk"),
     ("0.0.8", "output formatting + bugfixes", "@lczyk"),
     ("0.0.7", "fetching package lists for FP missing releases", "@lczyk"),
@@ -81,6 +82,7 @@ class UbuntuRelease:
 
 ## CONSTANTS ###################################################################
 
+# List of ubuntu versions so we don't have to fetch them all the time.
 # spell-checker: ignore dists utopic yakkety eoan
 KNOWN_RELEASES = {
     UbuntuRelease("14.04", "trusty"),
@@ -121,6 +123,7 @@ DISTS_URL = "https://archive.ubuntu.com/ubuntu/dists"
 
 CHISEL_RELEASES_URL = os.environ.get("CHISEL_RELEASES_URL", "https://github.com/canonical/chisel-releases")
 
+FORWARD_PORT_MISSING_LABEL = "forward port missing"
 
 ## LIB #########################################################################
 
@@ -166,9 +169,6 @@ def geturl(
     return code, res
 
 
-class RateLimit(Exception): ...
-
-
 def handle_code(code: int, url: str) -> None:
     if code == 200:
         return
@@ -176,7 +176,7 @@ def handle_code(code: int, url: str) -> None:
         raise Exception(f"Resource not found at '{url}'.")
     if code == 403:
         if "github.com" in url:
-            raise RateLimit("Rate limited by GitHub API. Try again later.")
+            raise Exception(f"Rate limit exceeded for '{url}'. Are you using the GITHUB_TOKEN?")
         else:
             raise Exception(f"Access forbidden to '{url}'.")
     if code == 401:
@@ -282,6 +282,9 @@ class PR:
 
     head: Commit
     base: Commit
+
+    label: bool  # whether the PR has the forward-port-missing label
+
     url: str = field(repr=False)  # URL of the PR
 
     def __post_init__(self) -> None:
@@ -297,6 +300,8 @@ class PR:
         head = Commit.from_json(data["head"])
         base = Commit.from_json(data["base"])
 
+        labels = data.get("labels", [])
+        label = any(label.get("name") == FORWARD_PORT_MISSING_LABEL for label in labels)
         return cls(
             url=data["html_url"],
             number=data["number"],
@@ -304,6 +309,7 @@ class PR:
             user=data["user"]["login"],
             head=head,
             base=base,
+            label=label,
         )
 
     def __lt__(self, other: object) -> bool:
@@ -917,6 +923,7 @@ class JSONOutputFormatter:
         for pr, comparisons_by_future_release in sorted(self.grouped_comparisons.items()):
             output_pr: dict = JSONOutputFormatter.pr_to_dict(pr)
             output_pr["forward_ported"] = forward_porting_status(comparisons_by_future_release)
+            output_pr["label"] = pr.label
             output_pr["forward_ports"] = {}
             if self.add_extra_info:
                 output_pr["comparisons"] = {}
@@ -984,7 +991,9 @@ class TextOutputFormatter:
             user = pr.user.replace("\n", "_").replace(" ", "_")
             if len(user) > 15:
                 user = user[:12] + "..."
-            rows.append(f"{pr.number:<4} {pr.base.ref:<13} {user:<15} {title:<40} {forward_ports_str}")
+            rows.append(
+                f"{pr.number:<4}  {int(pr.label):<1}  {pr.base.ref:<13}  {user:<15}  {title:<40}  {forward_ports_str}"
+            )
 
         return "\n".join(rows)
 
@@ -1057,10 +1066,6 @@ if __name__ == "__main__":
     logging.debug("Parsed args: %s", args)
     try:
         main(args)
-
-    except RateLimit as e:
-        logging.error("Rate limited: %s", e)
-        sys.exit(98)
 
     except NotImplementedError as e:
         logging.error("Not implemented: %s", e)
