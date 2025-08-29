@@ -61,7 +61,7 @@ function main() {
         local msg_file="${msg_file:-$(mktemp)}"
         local header="<!-- Forward Port Status Comment DO NOT EDIT -->"
         echo "$header" > "$msg_file"
-        echo "Forward Port Status:" > "$msg_file"
+        echo "Forward Port Status:" >> "$msg_file"
         if [ "$forward_ported" = true ]; then
             echo "✅ This PR has been forward ported." >> "$msg_file"
         else
