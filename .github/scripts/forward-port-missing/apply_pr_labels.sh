@@ -72,13 +72,6 @@ function main() {
         cat "$msg_file"
 
         # find existing comment by looking for the unique header
-        # local jq=".comments[] | select(.author.login == \"github-actions\") | select(.body | test(\"$header\"))"
-        # existing_comment=$(
-        #     gh pr view "$number" \
-        #     --json comments \
-        #     --jq "$jq" || echo ""
-        # )
-        # /repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/issues/$number/comments || echo "[]"
         local url="repos/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/issues/$number/comments"
         local comments=$(
             gh api \
@@ -86,10 +79,8 @@ function main() {
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 "$url" || echo "[]"
         )
-        # echo "${comments}" | jq .
-        local _jq='.[] | select(.author.login == "github-actions") | select(.body | test("'$header'"))'
+        local _jq='.[] | select(.user.login == "github-actions[bot]") | select(.body | test("'$header'"))'
         local existing_comment=$(echo "$comments" | jq "$_jq" || echo "")
-
 
         echo $existing_comment | jq .
         if [ -n "$existing_comment" ]; then
