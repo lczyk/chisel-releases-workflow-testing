@@ -29,6 +29,10 @@ jobs:
       # set the GitHub token to allow the script to add labels to the PR with
       # the `gh` CLI
       GH_TOKEN: ${{ github.token }} 
+    
+    # we need write permissions to be able to add labels
+    permissions:
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
