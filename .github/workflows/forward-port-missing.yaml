@@ -45,7 +45,6 @@ jobs:
         with:
           python-version: '3.10'
 
-
       - name: "Set reference to main branch"
         id: set-main-ref
         run: |
@@ -79,35 +78,3 @@ jobs:
         run: |
           ln -s "${{ env.files_main }}/.github/scripts/forward-port-missing/apply_pr_labels.sh" .
           cat results.json | ./apply_pr_labels.sh
-
-# Example output:
-# [
-#   {
-#     "number": 1,
-#     "title": "feat(20.04): \ud83e\uddea testing PR",
-#     "url": "https://github.com/lczyk/chisel-releases-workflow-testing/pull/1",
-#     "base": "ubuntu-20.04",
-#     "head": "lczyk/chisel-releases-workflow-testing/sample-pr",
-#     "forward_ported": false,
-#     "label": false,
-#     "forward_ports": {
-#       "ubuntu-22.04": [],
-#       "ubuntu-24.04": [],
-#       "ubuntu-25.04": []
-#     }
-#   },
-#   {
-#     "number": 4,
-#     "title": "Sample pr 2",
-#     "url": "https://github.com/lczyk/chisel-releases-workflow-testing/pull/4",
-#     "base": "ubuntu-20.04",
-#     "head": "lczyk/chisel-releases-workflow-testing/sample-pr-2",
-#     "forward_ported": true,
-#     "label": false,
-#     "forward_ports": {
-#       "ubuntu-22.04": [],
-#       "ubuntu-24.04": [],
-#       "ubuntu-25.04": []
-#     }
-#   }
-# ]
