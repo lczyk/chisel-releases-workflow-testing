@@ -2,6 +2,7 @@
 name = "forward-port-missing"
 description = "Add your description here"
 version = "0.0.11"
+# spellchecker: ignore Marcin Konowalczyk
 authors = [{ name = "Marcin Konowalczyk", email = "marcin.konowalczyk@canonical.com" }]
 readme = "README.md"
 requires-python = ">=3.9"
@@ -10,6 +11,7 @@ dependencies = []
 [project.urls]
 home = "https://github.com/lczyk/chisel-releases-workflow-testing"
 
+# spellchecker: ignore mypy
 [tool.mypy]
 ignore_missing_imports = true
 follow_imports = "normal"
@@ -34,6 +36,7 @@ files = [
     #
 ]
 
+# spellchecker: ignore pycache venv pytest
 [tool.ruff]
 exclude = [
     ".git",
@@ -62,6 +65,7 @@ lint.ignore = [
     # "PLR0913", # too many arguments in function definition
     #
 ]
+# spellchecker: ignore pycodestyle pyflakes pyupgrade isort perflint FURB refurb pylint
 lint.select = [
     "E",    # pycodestyle
     "F",    # Pyflakes
@@ -81,6 +85,7 @@ lint.select = [
 
 output-format = "concise"
 
+# spellchecker: ignore minversion addopts doctest
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = [
@@ -91,6 +96,7 @@ addopts = [
     #
 ]
 
+# spellchecker: ignore colorlog joblib
 [dependency-groups]
 dev = [
     "colorlog>=6.9.0",
