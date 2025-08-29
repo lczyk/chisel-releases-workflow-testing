@@ -339,6 +339,16 @@ def get_merge_base(base: Commit, head: Commit) -> str:
     return sha
 
 
+def check_github_token() -> None:
+    token = os.getenv("GITHUB_TOKEN", None)
+    if token is not None:
+        logging.debug("GITHUB_TOKEN is set.")
+        if not token.strip():
+            logging.warning("GITHUB_TOKEN is empty.")
+    else:
+        logging.debug("GITHUB_TOKEN is not set.")
+
+
 def geturl_github(url: str, params: dict[str, object] | None = None) -> tuple[int, bytes]:
     assert "github.com" in url, "Only GitHub URLs are supported."
     url = url.replace("github.com", "api.github.com/repos") if "api.github.com" not in url else url
@@ -1064,6 +1074,8 @@ if __name__ == "__main__":
     args = parse_args()
     setup_logging(args.log_level)
     logging.debug("Parsed args: %s", args)
+    check_github_token()
+
     try:
         main(args)
 
