@@ -14,13 +14,19 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
+from functools import total_ordering
 from html.parser import HTMLParser
+from itertools import product
+from typing import TYPE_CHECKING, Callable
 
-__version__ = "0.0.6"
+__version__ = "0.0.7"
 __author__ = "Marcin Konowalczyk"
 
 __changelog__ = [
+    ("0.0.7", "fetching package lists for FP missing releases", "@lczyk"),
     ("0.0.6", "main forward-porting logic implemented", "@lczyk"),
     ("0.0.5", "slice diff from the merge base, not the branch head", "@lczyk"),
     ("0.0.4", "--jobs for parallel slice fetching", "@lczyk"),
@@ -30,37 +36,84 @@ __changelog__ = [
     ("0.0.0", "boilerplate", "@lczyk"),
 ]
 
+################################################################################
+
+
+@total_ordering
+@dataclass(frozen=True, order=False)
+class UbuntuRelease:
+    version: str
+    codename: str
+
+    def __str__(self) -> str:
+        return f"ubuntu-{self.version} ({self.codename})"
+
+    @property
+    def version_tuple(self) -> tuple[int, int]:
+        return self.version_to_tuple(self.version)
+
+    @staticmethod
+    def version_to_tuple(version: str) -> tuple[int, int]:
+        year, month = version.split(".")
+        return int(year), int(month)
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, UbuntuRelease):
+            return NotImplemented
+        return self.version_tuple < other.version_tuple
+
+    @classmethod
+    def from_branch_name(cls, branch: str) -> UbuntuRelease:
+        """Create an UbuntuRelease from a branch name like 'ubuntu-20.04'."""
+        assert branch.startswith("ubuntu-"), "Branch name must start with 'ubuntu-'"
+        version = branch.split("-", 1)[1]
+        try:
+            _ = cls.version_to_tuple(version)
+        except Exception as e:
+            raise ValueError(f"Invalid Ubuntu version '{version}' for branch '{branch}': {e}") from None
+        codename = _VERSION_TO_CODENAME.get(version)
+        if codename is None:
+            raise ValueError(f"Unknown Ubuntu version '{version}' for branch '{branch}'")
+        return cls(version=version, codename=codename)
+
+
 ## CONSTANTS ###################################################################
 
 # spell-checker: ignore dists utopic yakkety eoan
-VERSION_TO_CODENAME = {
-    "14.04": "trusty",
-    "14.10": "utopic",
-    "15.04": "vivid",
-    "15.10": "wily",
-    "16.04": "xenial",
-    "16.10": "yakkety",
-    "17.04": "zesty",
-    "17.10": "artful",
-    "18.04": "bionic",
-    "18.10": "cosmic",
-    "19.04": "disco",
-    "19.10": "eoan",
-    "20.04": "focal",
-    "20.10": "groovy",
-    "21.04": "hirsute",
-    "21.10": "impish",
-    "22.04": "jammy",
-    "22.10": "kinetic",
-    "23.04": "lunar",
-    "23.10": "mantic",
-    "24.04": "noble",
-    "24.10": "oracular",
-    "25.04": "plucky",
-    "25.10": "questing",
+KNOWN_RELEASES = {
+    UbuntuRelease("14.04", "trusty"),
+    UbuntuRelease("14.10", "utopic"),
+    UbuntuRelease("15.04", "vivid"),
+    UbuntuRelease("15.10", "wily"),
+    UbuntuRelease("16.04", "xenial"),
+    UbuntuRelease("16.10", "yakkety"),
+    UbuntuRelease("17.04", "zesty"),
+    UbuntuRelease("17.10", "artful"),
+    UbuntuRelease("18.04", "bionic"),
+    UbuntuRelease("18.10", "cosmic"),
+    UbuntuRelease("19.04", "disco"),
+    UbuntuRelease("19.10", "eoan"),
+    UbuntuRelease("20.04", "focal"),
+    UbuntuRelease("20.10", "groovy"),
+    UbuntuRelease("21.04", "hirsute"),
+    UbuntuRelease("21.10", "impish"),
+    UbuntuRelease("22.04", "jammy"),
+    UbuntuRelease("22.10", "kinetic"),
+    UbuntuRelease("23.04", "lunar"),
+    UbuntuRelease("23.10", "mantic"),
+    UbuntuRelease("24.04", "noble"),
+    UbuntuRelease("24.10", "oracular"),
+    UbuntuRelease("25.04", "plucky"),
+    UbuntuRelease("25.10", "questing"),
 }
 
-CODENAME_TO_VERSION = {v: k for k, v in VERSION_TO_CODENAME.items()}
+
+ADDITIONAL_VERSIONS_TO_SKIP: set[UbuntuRelease] = {
+    UbuntuRelease("24.10", "oracular"),  # EOL
+}
+
+_CODENAME_TO_VERSION = {r.codename: r.version for r in KNOWN_RELEASES}
+_VERSION_TO_CODENAME = {r.version: r.codename for r in KNOWN_RELEASES}
 
 DISTS_URL = "https://archive.ubuntu.com/ubuntu/dists"
 
@@ -140,6 +193,17 @@ def handle_code(code: int, url: str) -> None:
     raise Exception(f"Failed to fetch '{url}'. HTTP status code: {code}")
 
 
+@contextmanager
+def CatchTime() -> Iterator[Callable[[], float]]:
+    """measure elapsed time of a code block
+    Adapted from: https://stackoverflow.com/a/69156219/2531987
+    CC BY-SA 4.0 https://creativecommons.org/licenses/by-sa/4.0/
+    """
+    t1 = t2 = time.perf_counter()
+    yield lambda: t2 - t1
+    t2 = time.perf_counter()
+
+
 ## IMPL ########################################################################
 
 
@@ -176,18 +240,9 @@ def _fallback_get_version(codename: str) -> str:
 
 
 def get_version(codename: str) -> str:
-    if codename in CODENAME_TO_VERSION:
-        return CODENAME_TO_VERSION[codename]
+    if codename in _CODENAME_TO_VERSION:
+        return _CODENAME_TO_VERSION[codename]
     return _fallback_get_version(codename)
-
-
-@dataclass(frozen=True, order=True)
-class UbuntuRelease:
-    version: str
-    codename: str
-
-    def __str__(self) -> str:
-        return f"ubuntu-{self.version} ({self.codename})"
 
 
 def currently_supported_ubuntu_releases() -> list[UbuntuRelease]:
@@ -222,7 +277,8 @@ class Commit:
         )
 
 
-@dataclass(frozen=True, unsafe_hash=True)
+@total_ordering
+@dataclass(frozen=True, unsafe_hash=True, order=False)
 class PR:
     url: str  # URL of the PR, e.g. http
     number: int  # number of the PR, e.g #601
@@ -233,7 +289,13 @@ class PR:
     head: Commit
     base: Commit
 
-    draft: bool
+    def __post_init__(self) -> None:
+        # Check that head and base are from the same repository
+        _ = UbuntuRelease.from_branch_name(self.base.ref)
+
+    @property
+    def ubuntu_release(self) -> UbuntuRelease:
+        return UbuntuRelease.from_branch_name(self.base.ref)
 
     @classmethod
     def from_json(cls, data: dict) -> PR:
@@ -247,8 +309,12 @@ class PR:
             user=data["user"]["login"],
             head=head,
             base=base,
-            draft=data.get("draft", False),  # draft field was added later
         )
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, PR):
+            return NotImplemented
+        return self.number < other.number
 
 
 def get_merge_base(base: Commit, head: Commit) -> str:
@@ -292,7 +358,7 @@ def ubuntu_branches_in_chisel_releases() -> set[UbuntuRelease]:
     ubuntu_releases = set()
     for branch in branches:
         version = branch.split("-", 1)[1]
-        codename = VERSION_TO_CODENAME.get(version, "unknown")
+        codename = _VERSION_TO_CODENAME.get(version, "unknown")
         ubuntu_releases.add(UbuntuRelease(version, codename))
     return ubuntu_releases
 
@@ -317,16 +383,12 @@ def get_all_prs(url: str, per_page: int = 100) -> set[PR]:
             break
         params["page"] += 1  # type: ignore
 
-    return set(PR.from_json(pr) for pr in results)
-
-
-def prs_into_chisel_releases() -> set[PR]:
-    prs = get_all_prs(url=CHISEL_RELEASES_URL)
     # filter down to PRs into branches named "ubuntu-XX.XX"
-    prs = {pr for pr in prs if pr.base.ref.startswith("ubuntu-")}
+    results = [pr for pr in results if pr["base"]["ref"].startswith("ubuntu-")]
     # filter out draft PRs
-    prs = {pr for pr in prs if not pr.draft}
-    return prs
+    results = [pr for pr in results if not pr.get("draft", False)]
+
+    return set(PR.from_json(pr) for pr in results)
 
 
 ################################################################################
@@ -353,20 +415,22 @@ def get_slices(repo_owner: str, repo_name: str, ref: str) -> set[str]:
 
 def get_merge_bases_by_pr(prs: set[PR], jobs: int | None = 1) -> dict[PR, str]:
     merge_bases_by_pr: dict[PR, str] = {}
-    if jobs == 1:
-        # NOTE: it is much nicer to debug/profile without parallelism
-        merge_bases_by_pr = {pr: get_merge_base(pr.base, pr.head) for pr in prs}
-    else:
-        from concurrent.futures import ThreadPoolExecutor
 
-        _prs = list(prs)  # we want list for zipping with results
-        with ThreadPoolExecutor(max_workers=jobs) as executor:
-            thread_pool_size = getattr(executor, "_max_workers", -1)
-            results = list(executor.map(lambda pr: get_merge_base(pr.base, pr.head), _prs))
-        logging.debug("Used a thread pool of size %d.", thread_pool_size)
-        merge_bases_by_pr = {pr: mb for pr, mb in zip(_prs, results)}
+    with CatchTime() as elapsed:
+        if jobs == 1:
+            # NOTE: it is much nicer to debug/profile without parallelism
+            merge_bases_by_pr = {pr: get_merge_base(pr.base, pr.head) for pr in prs}
+        else:
+            from concurrent.futures import ThreadPoolExecutor
 
-    logging.info("Fetched merge bases for %d PRs.", len(merge_bases_by_pr))
+            _prs = list(prs)  # we want list for zipping with results
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                thread_pool_size = getattr(executor, "_max_workers", -1)
+                results = list(executor.map(lambda pr: get_merge_base(pr.base, pr.head), _prs))
+            logging.debug("Used a thread pool of size %d.", thread_pool_size)
+            merge_bases_by_pr = {pr: mb for pr, mb in zip(_prs, results)}
+
+    logging.info("Fetched merge bases for %d PRs in %.2f seconds.", len(prs), elapsed())
     for pr, mb in merge_bases_by_pr.items():
         if pr.base.commit != mb:
             logging.warning(
@@ -379,7 +443,9 @@ def get_merge_bases_by_pr(prs: set[PR], jobs: int | None = 1) -> dict[PR, str]:
 
 
 def get_slices_by_pr(
-    prs: set[PR], merge_bases_by_pr: dict[PR, str], jobs: int | None = 1
+    prs: set[PR],
+    merge_bases_by_pr: dict[PR, str],
+    jobs: int | None = 1,
 ) -> tuple[dict[PR, set[str]], dict[PR, set[str]]]:
     # For each PR, get the list of files in the /slices directory in the base branch
     slices_in_head_by_pr: dict[PR, set[str]] = {}
@@ -387,37 +453,71 @@ def get_slices_by_pr(
     get_slices_base = lambda pr: get_slices(pr.base.repo_owner, pr.base.repo_name, merge_bases_by_pr[pr])
     get_slices_head = lambda pr: get_slices(pr.head.repo_owner, pr.head.repo_name, pr.head.ref)
 
-    tic = time.perf_counter()
-    if args.jobs == 1:
-        # NOTE: it is much nicer to debug/profile without parallelism
-        slices_in_head_by_pr = {pr: get_slices_head(pr) for pr in prs}
-        slices_in_base_by_pr = {pr: get_slices_base(pr) for pr in prs}
+    with CatchTime() as elapsed:
+        if jobs == 1:
+            # NOTE: it is much nicer to debug/profile without parallelism
+            slices_in_head_by_pr = {pr: get_slices_head(pr) for pr in prs}
+            slices_in_base_by_pr = {pr: get_slices_base(pr) for pr in prs}
 
-    else:
-        from concurrent.futures import ThreadPoolExecutor
+        else:
+            from concurrent.futures import ThreadPoolExecutor
 
-        _prs = list(prs)  # we want list for zipping with results
-        with ThreadPoolExecutor(max_workers=args.jobs) as executor:
-            thread_pool_size = getattr(executor, "_max_workers", -1)
-            results_head = list(executor.map(get_slices_head, _prs))
-            results_base = list(executor.map(get_slices_base, _prs))
+            _prs = list(prs)  # we want list for zipping with results
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                thread_pool_size = getattr(executor, "_max_workers", -1)
+                results_head = list(executor.map(get_slices_head, _prs))
+                results_base = list(executor.map(get_slices_base, _prs))
 
-        logging.debug("Used a thread pool of size %d.", thread_pool_size)
-        slices_in_head_by_pr = {pr: slices for pr, slices in zip(_prs, results_head)}
-        slices_in_base_by_pr = {pr: slices for pr, slices in zip(_prs, results_base)}
-    toc = time.perf_counter()
+            logging.debug("Used a thread pool of size %d.", thread_pool_size)
+            slices_in_head_by_pr = {pr: slices for pr, slices in zip(_prs, results_head)}
+            slices_in_base_by_pr = {pr: slices for pr, slices in zip(_prs, results_base)}
 
     total_slices = sum(len(slices) for slices in slices_in_head_by_pr.values())
     total_slices += sum(len(slices) for slices in slices_in_base_by_pr.values())
-    logging.info("Fetched %d slices for %d PRs in %.2f seconds.", total_slices, len(prs), toc - tic)
+    logging.info("Fetched %d slices for %d PRs in %.2f seconds.", total_slices, len(prs), elapsed())
 
     return slices_in_head_by_pr, slices_in_base_by_pr
+
+
+class SliceComparisonResult:
+    base_pr: PR
+    base_slices: set[str]
+
+    _yes: dict[PR, set[str]]
+    _no: dict[PR, set[str]]
+
+    def __init__(self, pr: PR, slices: set[str]) -> None:
+        self.base_pr = pr
+        self.base_slices = slices
+        self._yes = {}
+        self._no = {}
+
+    def __bool__(self) -> bool:
+        return bool(self._yes)
+
+    def compare_with(self, pr: PR, slices: set[str]) -> None:
+        if self.base_slices.issubset(slices):
+            self.is_forward_ported = True
+            self._yes[pr] = slices
+        else:
+            self._no[pr] = slices
+
+    def __repr__(self) -> str:
+        return (
+            f"SliceComparisonResult(base_pr=#{self.base_pr.number}, "
+            f"base_slices={len(self.base_slices)}, "
+            f"comparisons={len(self._yes) + len(self._no)}, "
+            f"is_forward_ported={self.is_forward_ported}, "
+        )
+
+    def forward_ports(self) -> set[PR]:
+        return set(self._yes.keys())
 
 
 def get_results_by_pr(
     prs_by_ubuntu_release: dict[UbuntuRelease, set[PR]],
     new_slices_by_pr: dict[PR, set[str]],
-) -> dict[PR, dict[UbuntuRelease, set[PR | None]]]:
+) -> dict[PR, dict[UbuntuRelease, SliceComparisonResult]]:
     prs: set[PR] = set()
     for prs_in_release in prs_by_ubuntu_release.values():
         prs.update(prs_in_release)
@@ -427,7 +527,7 @@ def get_results_by_pr(
     # For each PR we have a mapping from ubuntu release to a set of PRs that
     # forward-port the new slices to that release. An empty set means no
     # forward-port found, a set with None means no new slices to forward-port.
-    status_by_pr: dict[PR, dict[UbuntuRelease, set[PR | None]]] = {pr: {} for pr in prs}
+    status_by_pr: dict[PR, dict[UbuntuRelease, SliceComparisonResult]] = {pr: {} for pr in prs}
 
     for ubuntu_release, prs_in_release in prs_by_ubuntu_release.items():
         future_releases = [r for r in ubuntu_releases if r > ubuntu_release]
@@ -436,17 +536,9 @@ def get_results_by_pr(
             continue
 
         for pr in prs_in_release:
-            assert pr in status_by_pr
             new_slices = new_slices_by_pr.get(pr, set())
-
             for future_release in future_releases:
-                status_by_pr[pr][future_release] = set()
-                if not new_slices:
-                    logging.debug("PR #%d contains no new slices. Marking as OK.", pr.number)
-                    # No new slices to forward-port, so definitely OK
-                    status_by_pr[pr][future_release].add(None)
-                    continue
-
+                status_by_pr[pr][future_release] = SliceComparisonResult(pr, new_slices)
                 prs_into_future_release = prs_by_ubuntu_release.get(future_release, set())
                 if not prs_into_future_release:
                     logging.debug("No PRs into future release %s of PR #%d", future_release, pr.number)
@@ -455,18 +547,93 @@ def get_results_by_pr(
 
                 for pr_future in prs_into_future_release:
                     new_slices_in_future = new_slices_by_pr.get(pr_future, set())
-                    if not new_slices_in_future:
-                        # logging.debug(
-                        #     "PR #%d cannot be the forward-port of PR #%d because it contains no new slices.",
-                        #     pr_future.number,
-                        #     pr.number,
-                        # )
-                        continue
-                    if new_slices.issubset(new_slices_in_future):
-                        # Hooray! We found a PR that forward-ports all new slices!
-                        status_by_pr[pr][future_release].add(pr_future)
+                    status_by_pr[pr][future_release].compare_with(pr_future, new_slices_in_future)
 
     return status_by_pr
+
+
+def get_packages_by_release(
+    releases: set[UbuntuRelease],
+    jobs: int | None = 1,
+) -> dict[UbuntuRelease, set[str]]:
+    package_listings: dict[tuple[UbuntuRelease, str, str], set[str]] = {}
+
+    _releases = list(releases)  # we want list for zipping with results
+    _components = ("main", "restricted", "universe", "multiverse")
+    _repos = ("", "security", "updates", "backports")
+    _product = list(product(_releases, _components, _repos))
+
+    with CatchTime() as elapsed:
+        if jobs == 1:
+            for release, component, repo in _product:
+                package_listings[(release, component, repo)] = get_package_content(release, component, repo)
+
+        else:
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                thread_pool_size = getattr(executor, "_max_workers", -1)
+                results = list(
+                    executor.map(lambda args: get_package_content(*args), _product)  # type: ignore
+                )
+            logging.debug("Used a thread pool of size %d.", thread_pool_size)
+            package_listings = {args: pkgs for args, pkgs in zip(_product, results)}
+
+    logging.info("Fetched packages for %d releases in %.2f seconds.", len(releases), elapsed())
+
+    # Union all components and repos
+    packages_by_release: dict[UbuntuRelease, set[str]] = {r: set() for r in releases}
+    for (release, _component, _repo), packages in package_listings.items():
+        packages_by_release[release].update(packages)
+
+    return packages_by_release
+
+
+if TYPE_CHECKING:
+    import re
+
+_PACKAGE_RE: re.Pattern[str] | None = None  # cache for the compiled regex
+
+
+def get_package_content(release: UbuntuRelease, component: str, repo: str) -> set[str]:
+    if component not in ("main", "restricted", "universe", "multiverse"):
+        raise ValueError(
+            f"Invalid component: {component}. Must be one of 'main', 'restricted', 'universe', or 'multiverse'."
+        )
+    if repo not in ("", "security", "updates", "backports"):
+        raise ValueError(f"Invalid repo: {repo}. Must be one of '', 'security', 'updates', or 'backports'.")
+
+    logging.debug("Fetching packages for %s, component=%s, repo=%s", release, component, repo)
+
+    name = release.codename
+    name = f"{name}-{repo}" if repo else name
+
+    package_url = f"https://archive.ubuntu.com/ubuntu/dists/{name}/{component}/binary-amd64/Packages.gz"
+    code, res = geturl(package_url)
+
+    if code != 200:
+        # retry with old-releases if not found in archive
+        package_url = f"https://old-releases.ubuntu.com/ubuntu/dists/{name}/{component}/binary-amd64/Packages.gz"
+        code, res = geturl(package_url)
+
+    if code != 200:
+        raise RuntimeError(f"Failed to download package list from '{package_url}'. HTTP status code: {code}")
+
+    import gzip
+    import io
+    import re
+
+    with gzip.GzipFile(fileobj=io.BytesIO(res)) as f:
+        content = f.read().decode("utf-8")
+
+    global _PACKAGE_RE  # noqa: PLW0603
+    if _PACKAGE_RE:
+        compiled_re = _PACKAGE_RE
+    else:
+        compiled_re = re.compile(r"^Package:\s*(\S+)", re.MULTILINE)
+        _PACKAGE_RE = compiled_re  # cache it
+
+    return set(m.group(1) for m in compiled_re.finditer(content))
 
 
 ## MAIN ########################################################################
@@ -489,28 +656,30 @@ def main(args: argparse.Namespace) -> None:
             logging.debug("Will drop %d supported releases without branches: %s", len(will_drop), will_drop_str)
 
     ubuntu_releases = [r for r in ubuntu_releases if r in ubuntu_branches]
+
+    if ADDITIONAL_VERSIONS_TO_SKIP:
+        logging.info("Skipping additional versions: %s", ", ".join(str(r) for r in ADDITIONAL_VERSIONS_TO_SKIP))
+
+    ubuntu_releases = [r for r in ubuntu_releases if r not in ADDITIONAL_VERSIONS_TO_SKIP]
+
     logging.info(
         "Considering %d supported Ubuntu releases with branches in chisel-releases: %s",
         len(ubuntu_releases),
         ", ".join(str(r) for r in ubuntu_releases),
     )
 
-    prs = prs_into_chisel_releases()
+    prs = get_all_prs(CHISEL_RELEASES_URL)
     logging.info("Found %d open PRs in %s", len(prs), CHISEL_RELEASES_URL)
 
     prs_by_ubuntu_release: dict[UbuntuRelease, set[PR]] = {ubuntu_release: set() for ubuntu_release in ubuntu_releases}
-    for pr in prs:
-        branch = pr.base.ref
-        assert branch.startswith("ubuntu-"), "Only PRs into branches named 'ubuntu-XX.XX' are supported."
-        version = branch.split("-", 1)[1]
-        codename = VERSION_TO_CODENAME.get(version, "unknown")
-        key = UbuntuRelease(version, codename)
-        if key not in prs_by_ubuntu_release:
-            logging.warning(
-                "PR #%d is into unsupported Ubuntu release %s (%s). Skipping.", pr.number, version, codename
-            )
+    _prs = list(sorted(prs))  # we want list for logging
+    for pr in _prs:
+        ubuntu_release = UbuntuRelease.from_branch_name(pr.base.ref)
+        if ubuntu_release not in prs_by_ubuntu_release:
+            prs.discard(pr)
+            logging.warning("PR #%d is into unsupported Ubuntu release %s. Skipping.", pr.number, ubuntu_release)
             continue
-        prs_by_ubuntu_release[key].add(pr)
+        prs_by_ubuntu_release[ubuntu_release].add(pr)
 
     # filter out releases with no PRs
     prs_by_ubuntu_release = {k: v for k, v in prs_by_ubuntu_release.items() if len(v) > 0}
@@ -531,7 +700,7 @@ def main(args: argparse.Namespace) -> None:
             )
 
     new_slices_by_pr: dict[PR, set[str]] = {}
-    for pr in prs:
+    for pr in sorted(prs):
         slices_in_head = slices_in_head_by_pr.get(pr, set())
         slices_in_base = slices_in_base_by_pr.get(pr, set())
         new_slices = slices_in_head - slices_in_base
@@ -547,20 +716,47 @@ def main(args: argparse.Namespace) -> None:
                 slices_string = slices_string if len(slices_string) < 100 else slices_string[:97] + "..."
                 logging.debug("PR #%d introduces %d new slices: %s", pr.number, len(new_slices), slices_string)
 
-    results_by_pr: dict[PR, dict[UbuntuRelease, set[PR | None]]] = get_results_by_pr(
-        prs_by_ubuntu_release, new_slices_by_pr
-    )
+    results_by_pr = get_results_by_pr(prs_by_ubuntu_release, new_slices_by_pr)
+
+    prs_with_no_forward_ports = {pr for pr, results in results_by_pr.items() if not any(results.values())}
+    if prs_with_no_forward_ports and logging.getLogger().isEnabledFor(logging.WARNING):
+        logging.warning(
+            "Found %d PRs with missing forward-ports: %s",
+            len(prs_with_no_forward_ports),
+            ", ".join(f"#{pr.number}" for pr in sorted(prs_with_no_forward_ports)),
+        )
+
+    if prs_with_no_forward_ports:
+        # if we have a bunch of PRs with missing forward-ports, they *might* be
+        # missing because the package is just not in the newer release.
+        # NOTE: we don't need to fetch the packages for all releases, just
+        #       for the *future* releases that are missing forward-ports.
+        releases_to_fetch: set[UbuntuRelease] = set()
+        for pr in prs_with_no_forward_ports:
+            future_releases = [r for r in ubuntu_releases if r > pr.ubuntu_release]
+            releases_to_fetch.update(future_releases)
+        # Sanity check. If we got here, we should have at least one release to fetch.
+        assert releases_to_fetch, "Expected at least one release to fetch packages for."
+        packages_by_release = get_packages_by_release(releases_to_fetch, args.jobs)
+
+        if logging.getLogger().isEnabledFor(logging.DEBUG):
+            for release, packages in packages_by_release.items():
+                logging.debug("Release %s has %d packages.", release, len(packages))
+
+        # for pr in sorted(prs_with_no_forward_ports):
+        #     future_releases = [r for r in ubuntu_releases if r > pr.ubuntu_release]
 
     for pr, results_by_future in results_by_pr.items():
-        for future_release, results in results_by_future.items():
-            if not results:
+        for future_release, result in results_by_future.items():
+            forward_ports = result.forward_ports()
+            if not forward_ports:
                 logging.warning(
                     "PR #%d into %s: No PRs found into future release %s.",
                     pr.number,
                     pr.base.ref,
                     future_release,
                 )
-            elif None in results:
+            elif not result.base_slices:
                 logging.info(
                     "PR #%d into %s has no new slices, so it's OK for future release %s.",
                     pr.number,
@@ -568,19 +764,27 @@ def main(args: argparse.Namespace) -> None:
                     future_release,
                 )
             else:
-                _results: set[PR] = results  # type: ignore
                 logging.info(
                     "PR #%d into %s is forward-ported to future release %s by %d PR(s) (%s).",
                     pr.number,
                     pr.base.ref,
                     future_release,
-                    len(results),
-                    ", ".join(f"#{p.number}" for p in _results),
+                    len(forward_ports),
+                    ", ".join(f"#{p.number}" for p in sorted(forward_ports)),
                 )
 
     # make sure we didn't drop any PRs
     all_prs_in_results = set(results_by_pr.keys())
-    assert all_prs_in_results == prs, "Some PRs were dropped from the results."
+    if all_prs_in_results != prs:
+        missing_prs = prs - all_prs_in_results
+        additional_prs = all_prs_in_results - prs
+        logging.error("Some PRs are missing in the results: %s", ", ".join(f"#{pr.number}" for pr in missing_prs))
+        if additional_prs:
+            logging.error(
+                "Some additional PRs are in the results but not in the input: %s",
+                ", ".join(f"#{pr.number}" for pr in additional_prs),
+            )
+        raise Exception("Some PRs are missing in the results.")
 
     raise NotImplementedError("Main logic not implemented yet.")
 
