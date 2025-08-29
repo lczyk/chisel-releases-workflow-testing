@@ -12,7 +12,7 @@ on:
   #   types: [opened, edited, synchronize]
   #   branches:
   #     - "main"
-  workflow_call:
+  # workflow_call:
 
 # env:
 #   # The path to the script that checks for forward ports.
@@ -33,6 +33,12 @@ jobs:
         with:
           # We do need to fetch all history for all branches.
           fetch-depth: 0
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
 
       - name: "Set reference to main branch"
         id: set-main-ref
@@ -51,11 +57,11 @@ jobs:
           ref: ${{ steps.set-main-ref.outputs.ref_main }}
           path: ${{ env.files_main }}
       
-      - name: "Check for forward port"
+      - env:
+          GITHUB_TOKEN: ${{ secrets.ROCKSBOT_PR_TOKEN }}
+          CHISEL_RELEASES_URL: http://github.com/lczyk/chisel-releases-workflow-testing
+
+        name: "Check for forward port"
         run: |
-          ln -s "${{ env.files_main }}/.github/scripts/forward-port-missing/forward-port-missing" .
-          ./forward-port-missing \
-            --check_repo false \
-            --check_prs true \
-            --versions 20.04,22.04,24.04,25.04 \
-            .
+          ln -s "${{ env.files_main }}/.github/scripts/forward-port-missing/forward-port-missing.py" .
+          ./forward-port-missing.py --log-level=debug -j=-1 --format=json
