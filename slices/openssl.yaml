@@ -1,0 +1,45 @@
+package: openssl
+
+essential:
+  - openssl_copyright
+
+slices:
+  bins:
+    essential:
+      - libc6_config
+      - libc6_libs
+      - libssl3_libs
+      - openssl_config
+    contents:
+      /usr/bin/c_rehash:
+      /usr/bin/openssl:
+
+  config:
+    contents:
+      # TODO: this is not a config, but data. Remove it for future releases.
+      /etc/ssl/certs/:
+      /etc/ssl/openssl.cnf:
+      # TODO: this is not a config, but data. Remove it for future releases.
+      /etc/ssl/private/:
+      # TODO: this is not a config, but data. Remove it for future releases.
+      /usr/lib/ssl/certs:
+      /usr/lib/ssl/openssl.cnf:
+      # TODO: this is not a config, but data. Remove it for future releases.
+      /usr/lib/ssl/private:
+
+  # Use this slice with "ca-certificates_data" as OpenSSL looks at
+  # the following path for the default CA certificates file.
+  # Ref: https://www.openssl.org/docs/manmaster/man3/SSL_CTX_load_verify_locations.html
+  data:
+    contents:
+      /etc/ssl/certs/:
+      /etc/ssl/private/:
+      /usr/lib/ssl/cert.pem: {symlink: /etc/ssl/certs/ca-certificates.crt}
+      /usr/lib/ssl/certs:
+      /usr/lib/ssl/private:
+
+  copyright:
+    essential:
+      - libssl3_copyright
+    contents:
+      /usr/share/doc/openssl/copyright:
