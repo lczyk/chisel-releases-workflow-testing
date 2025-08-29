@@ -72,13 +72,15 @@ function main() {
         cat "$msg_file"
 
         # find existing comment by looking for the unique header
-        local jq=".comments[] | select(.author.login == \"github-actions\") | select(.body | test(\"$header\")) | .id"
-        existing_comment_id=$(
+        local jq=".comments[] | select(.author.login == \"github-actions\") | select(.body | test(\"$header\"))"
+        existing_comment=$(
             gh pr view "$number" \
             --json comments \
             --jq "$jq" || echo ""
         )
-        if [ -n "$existing_comment_id" ]; then
+        echo $existing_comment | jq .
+        if [ -n "$existing_comment" ]; then
+            local existing_comment_id=$(echo "$existing_comment" | jq -r '.id')
             echo "  Updating existing comment (ID: $existing_comment_id)."
             # # GitHub CLI api
             # # https://cli.github.com/manual/gh_api
