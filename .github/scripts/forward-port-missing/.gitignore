@@ -1,12 +1,27 @@
+
+# Various tool cache dirs
 __pycache__
 .mypy_cache
 .ruff_cache
 .tox
-dist
-.python-version
 .pytest_cache
-src/**/*.rst
-build
+
+# Virtual environment
 .venv
-*.egg-info
-.cache-geturl
+
+# Directory where joblib memory caches things
+.memory
+
+# all the deps are here only for development,
+# so we don't really need the lock file
+uv.lock
+
+# Its useful to pin the dev version to the oldest with
+# `uv python pin 3.9` but we don't need the resulting file
+.python-version
+
+
+# Data files
+*.pickle
+*.pickle.gz
+*.sqlite

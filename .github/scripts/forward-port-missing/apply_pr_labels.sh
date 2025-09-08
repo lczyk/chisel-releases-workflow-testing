@@ -1,4 +1,7 @@
 #!/bin/bash
+# Apply or remove the "forward port missing" label on PRs based on the JSON input.
+# Also, post or update a comment on the PR with the forward port status.
+#
 # usage: cat results.json | ./apply_pr_labels.sh --dry-run/-n
 
 dry_run=false
@@ -17,7 +20,6 @@ done
 
 _maybe_dry_run() {
     if [ "$dry_run" = true ]; then
-        # squash multiple spaces into one
         echo "> $(echo "$1" | tr -s ' ')"
     else
         eval "$1"
@@ -43,8 +45,6 @@ function main() {
         echo "PR #$number: $title"
         echo "  $head -> $base"
         echo "  $url"
-        # echo "  forward_ported: $forward_ported"
-        # echo "  has label: $label"
 
         if [ "$forward_ported" = false ] && [ "$label" = false ]; then
             echo "  Adding the 'forward port missing' label."
